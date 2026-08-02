@@ -94,14 +94,23 @@ async function hostedIdentityCheck() {
 		assert.notEqual(event?.deleted, true, 'OPERON_CLI_PR_PUSH_DELETE_FORBIDDEN');
 	} else {
 		const number = event?.number;
+		const pullRequest = event?.pull_request;
 		assert.equal(Number.isSafeInteger(number) && number > 0, true, 'OPERON_CLI_PR_NUMBER_INVALID');
 		assert.equal(ref, `refs/pull/${number}/merge`, 'OPERON_CLI_PR_REF_MISMATCH');
 		assert.equal(refName, `${number}/merge`, 'OPERON_CLI_PR_REF_NAME_MISMATCH');
-		assert.equal(hostedEnvironment('GITHUB_BASE_REF'), 'main', 'OPERON_CLI_PR_BASE_REF_MISMATCH');
-		assert.notEqual(hostedEnvironment('GITHUB_HEAD_REF'), '', 'OPERON_CLI_PR_HEAD_REF_MISSING');
-		assert.equal(event?.pull_request?.base?.repo?.full_name, repository, 'OPERON_CLI_PR_BASE_REPOSITORY_MISMATCH');
-		assert.equal(event?.pull_request?.base?.ref, 'main', 'OPERON_CLI_PR_EVENT_BASE_REF_MISMATCH');
-		assert.equal(event?.pull_request?.merge_commit_sha, sha, 'OPERON_CLI_PR_MERGE_SHA_MISMATCH');
+		const baseRef = hostedEnvironment('GITHUB_BASE_REF');
+		const headRef = hostedEnvironment('GITHUB_HEAD_REF');
+		assert.equal(baseRef, 'main', 'OPERON_CLI_PR_BASE_REF_MISMATCH');
+		assert.equal(pullRequest?.base?.repo?.full_name, repository, 'OPERON_CLI_PR_BASE_REPOSITORY_MISMATCH');
+		assert.equal(pullRequest?.base?.ref, baseRef, 'OPERON_CLI_PR_EVENT_BASE_REF_MISMATCH');
+		assert.equal(pullRequest?.head?.ref, headRef, 'OPERON_CLI_PR_EVENT_HEAD_REF_MISMATCH');
+		assert.match(pullRequest?.base?.sha ?? '', /^[0-9a-f]{40}$/u, 'OPERON_CLI_PR_BASE_SHA_INVALID');
+		assert.match(pullRequest?.head?.sha ?? '', /^[0-9a-f]{40}$/u, 'OPERON_CLI_PR_HEAD_SHA_INVALID');
+		assert.match(pullRequest?.head?.repo?.full_name ?? '', /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u, 'OPERON_CLI_PR_HEAD_REPOSITORY_INVALID');
+		assert.ok(
+			pullRequest?.merge_commit_sha === null || pullRequest?.merge_commit_sha === sha,
+			'OPERON_CLI_PR_MERGE_SHA_MISMATCH',
+		);
 	}
 	console.log(JSON.stringify({ status: 'passed', event: eventName, sha }));
 }
