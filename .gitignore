@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+.cache/
+*.log
+*.tgz
+*.tsbuildinfo
+.operon-cli-*
+.env
+.env.*
+!vendor/operon-plugin-v1/**
+!schemas/**
+!types/**

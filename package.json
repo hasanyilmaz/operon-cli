@@ -1,0 +1,107 @@
+{
+  "name": "@stratejya/operon-cli",
+  "version": "1.0.8",
+  "description": "Official command-line client for the Operon Agent Runtime in Obsidian.",
+  "private": true,
+  "type": "module",
+  "license": "GPL-3.0-or-later",
+  "author": "Hasan Yilmaz",
+  "homepage": "https://github.com/hasanyilmaz/operon-cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hasanyilmaz/operon-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hasanyilmaz/operon-cli/issues"
+  },
+  "keywords": [
+    "obsidian",
+    "operon",
+    "tasks",
+    "agents",
+    "cli"
+  ],
+  "engines": {
+    "node": "^22.0.0 || ^24.0.0 || ^26.0.0"
+  },
+  "packageManager": "npm@11.12.1",
+  "bin": {
+    "operon": "./dist/operon.mjs"
+  },
+  "exports": {
+    "./contracts/v1": {
+      "types": "./types/src/agent-runtime/public/v1/index.d.ts",
+      "default": null
+    },
+    "./contracts/v1/developer-api": {
+      "types": "./types/src/agent-runtime/public/v1/developer-api.d.ts",
+      "default": null
+    },
+    "./contracts/v1/cli": {
+      "types": "./types/src/agent-runtime/public/v1/cli.d.ts",
+      "default": null
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "contracts/v1": [
+        "types/src/agent-runtime/public/v1/index.d.ts"
+      ],
+      "contracts/v1/developer-api": [
+        "types/src/agent-runtime/public/v1/developer-api.d.ts"
+      ],
+      "contracts/v1/cli": [
+        "types/src/agent-runtime/public/v1/cli.d.ts"
+      ],
+      "*": [
+        "types/not-exported.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist/**/*.mjs",
+    "schemas/v1/*.json",
+    "types/**/*.d.ts",
+    "examples/developer-api-consumer/**",
+    "cli-manifest-v1.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "snapshot:write": "node scripts/snapshot-manifest.mjs --write",
+    "snapshot:check": "node scripts/snapshot-manifest.mjs --check",
+    "snapshot:negative:test": "node --test test/parity/snapshot-negative.test.mjs",
+    "snapshot:parity:test": "node scripts/run-shared-parity.mjs",
+    "lint:strict": "eslint . --max-warnings 0",
+    "typecheck:source": "tsc --noEmit",
+    "types:write": "node type-build.mjs --write",
+    "types:check": "node type-build.mjs --check",
+    "schemas:write": "node scripts/generate-schemas.mjs --write",
+    "schemas:check": "node scripts/generate-schemas.mjs --check",
+    "manifest:write": "node scripts/generate-cli-manifest.mjs --write",
+    "manifest:check": "node scripts/generate-cli-manifest.mjs --check",
+    "generate:write": "npm run snapshot:write && npm run schemas:write && npm run types:write && npm run manifest:write",
+    "generate:check": "npm run snapshot:check && npm run schemas:check && npm run types:check && npm run manifest:check",
+    "test:portable": "node scripts/run-typescript-tests.mjs test/unit test/transport && node --test test/package/*.test.mjs test/parity/*.test.mjs",
+    "performance:test": "node --test test/performance/*.test.mjs",
+    "build:dist": "npm run snapshot:check && node build.mjs",
+    "package:test": "node type-consumer.test.mjs && node scripts/test-package.mjs",
+    "prepack": "node scripts/check-release-build-env.mjs && npm run generate:check && npm run snapshot:parity:test && npm run lint:strict && npm run typecheck:source && npm run test:portable && npm run performance:test && npm run build:dist",
+    "test": "npm run snapshot:negative:test && npm run prepack && npm run package:test"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "16.18.126",
+    "ajv": "8.20.0",
+    "esbuild": "0.28.1",
+    "eslint": "10.5.0",
+    "globals": "14.0.0",
+    "tslib": "2.4.0",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.61.0"
+  }
+}
