@@ -88,6 +88,11 @@ export interface InteractiveShellOptionsV1 {
 	updateNotice?: CliUpdateNoticeV1 | null;
 }
 
+export interface InteractiveShellSignalSourceV1 {
+	once(signal: NodeJS.Signals, listener: () => void): unknown;
+	removeListener(signal: NodeJS.Signals, listener: () => void): unknown;
+}
+
 export async function runInteractiveShellV1(options: InteractiveShellOptionsV1): Promise<number> {
 	const {
 		session,
@@ -337,6 +342,8 @@ export function createProcessInteractiveShellSessionV1(options: {
 	input?: NodeJS.ReadableStream;
 	stdout?: NodeJS.WritableStream;
 	stderr?: NodeJS.WritableStream;
+	platform?: NodeJS.Platform;
+	signalSource?: InteractiveShellSignalSourceV1;
 } = {}): InteractiveShellSessionV1 | null {
 	const input = options.input ?? process.stdin;
 	const stdout = options.stdout ?? process.stdout;
@@ -347,6 +354,8 @@ export function createProcessInteractiveShellSessionV1(options: {
 		stdout,
 		stderr,
 		cwd: options.cwd ?? process.cwd(),
+		platform: options.platform ?? process.platform,
+		signalSource: options.signalSource ?? process,
 	});
 }
 
@@ -362,16 +371,24 @@ class ProcessInteractiveShellSessionV1 implements InteractiveShellSessionV1 {
 	} | null = null;
 	private activeCommand: AbortController | null = null;
 	private didClose = false;
-	private readonly onSigterm: () => void;
+	private readonly signalSource: InteractiveShellSignalSourceV1;
+	private readonly strongCloseSignals: readonly NodeJS.Signals[];
+	private readonly onStrongCloseSignal: () => void;
 
 	constructor(options: {
 		input: NodeJS.ReadableStream;
 		stdout: NodeJS.WritableStream;
 		stderr: NodeJS.WritableStream;
 		cwd: string;
+		platform: NodeJS.Platform;
+		signalSource: InteractiveShellSignalSourceV1;
 	}) {
 		this.stdout = options.stdout;
 		this.stderr = options.stderr;
+		this.signalSource = options.signalSource;
+		this.strongCloseSignals = options.platform === 'win32'
+			? ['SIGTERM', 'SIGBREAK']
+			: ['SIGTERM'];
 		const readlineOptions: ReadLineOptions = {
 			input: options.input,
 			output: options.stdout,
@@ -385,8 +402,10 @@ class ProcessInteractiveShellSessionV1 implements InteractiveShellSessionV1 {
 		this.input.on('line', line => this.emit({ kind: 'line', value: line }));
 		this.input.on('SIGINT', () => this.handleSigint());
 		this.input.on('close', () => this.handleClose());
-		this.onSigterm = () => this.close();
-		process.once('SIGTERM', this.onSigterm);
+		this.onStrongCloseSignal = () => this.close();
+		for (const signal of this.strongCloseSignals) {
+			this.signalSource.once(signal, this.onStrongCloseSignal);
+		}
 		this.guidedPort = {
 			ask: async prompt => {
 				const event = await this.read(prompt, true);
@@ -425,7 +444,7 @@ class ProcessInteractiveShellSessionV1 implements InteractiveShellSessionV1 {
 		this.didClose = true;
 		this.activeCommand?.abort();
 		this.activeCommand = null;
-		process.removeListener('SIGTERM', this.onSigterm);
+		this.removeStrongCloseSignalListeners();
 		this.input.close();
 		this.resolveWaiter({ kind: 'eof' });
 	}
@@ -482,8 +501,14 @@ class ProcessInteractiveShellSessionV1 implements InteractiveShellSessionV1 {
 		this.didClose = true;
 		this.activeCommand?.abort();
 		this.activeCommand = null;
-		process.removeListener('SIGTERM', this.onSigterm);
+		this.removeStrongCloseSignalListeners();
 		this.resolveWaiter({ kind: 'eof' });
+	}
+
+	private removeStrongCloseSignalListeners(): void {
+		for (const signal of this.strongCloseSignals) {
+			this.signalSource.removeListener(signal, this.onStrongCloseSignal);
+		}
 	}
 
 	private filterHistory(history: string[]): void {

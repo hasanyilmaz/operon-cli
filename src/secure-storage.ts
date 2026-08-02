@@ -11,7 +11,9 @@ import {
 	unlinkSync,
 	writeFileSync,
 } from 'node:fs';
-import { dirname, join, win32 } from 'node:path';
+import { dirname, join } from 'node:path';
+
+import { resolveTrustedWindowsSystemExecutableV1 } from './windows-system';
 
 export type CliStorageSecurityBackendV1 = 'posix-mode' | 'windows-dacl';
 
@@ -344,47 +346,17 @@ function runWindowsAclScriptV1(
 export function resolveWindowsPowerShellV1(
 	options: {
 		env?: NodeJS.ProcessEnv;
-		lstat?: (path: string) => { isFile(): boolean; isSymbolicLink(): boolean };
+		lstat?: (path: string) => { isFile(): boolean; isSymbolicLink(): boolean; isDirectory(): boolean };
 	} = {},
 ): { executable: string; systemRoot: string } {
-	const env = options.env ?? process.env;
-	const lstat = options.lstat ?? lstatSync;
-	const systemRoot = env.SystemRoot;
-	const windowsDirectory = env.WINDIR;
-	if (
-		!systemRoot
-		|| !windowsDirectory
-		|| systemRoot.includes('\0')
-		|| windowsDirectory.includes('\0')
-		|| !win32.isAbsolute(systemRoot)
-		|| !win32.isAbsolute(windowsDirectory)
-	) throw new Error('SECURITY_ACL_UNAVAILABLE');
-	const normalizedRoot = win32.normalize(systemRoot).replace(/[\\/]+$/u, '');
-	const normalizedWindowsDirectory = win32.normalize(windowsDirectory).replace(/[\\/]+$/u, '');
-	if (normalizedRoot.toLocaleLowerCase('en-US') !== normalizedWindowsDirectory.toLocaleLowerCase('en-US')) {
-		throw new Error('SECURITY_ACL_UNAVAILABLE');
-	}
-	const executable = win32.join(
-		normalizedRoot,
+	return resolveTrustedWindowsSystemExecutableV1([
 		'System32',
 		'WindowsPowerShell',
 		'v1.0',
 		'powershell.exe',
-	);
-	let cursor = executable;
-	while (true) {
-		let stat: ReturnType<typeof lstat>;
-		try {
-			stat = lstat(cursor);
-		} catch {
-			throw new Error('SECURITY_ACL_UNAVAILABLE');
-		}
-		if (stat.isSymbolicLink() || (cursor === executable && !stat.isFile())) {
-			throw new Error('SECURITY_ACL_UNAVAILABLE');
-		}
-		const parent = win32.dirname(cursor);
-		if (parent === cursor) break;
-		cursor = parent;
-	}
-	return { executable, systemRoot: normalizedRoot };
+	], {
+		env: options.env,
+		lstat: options.lstat,
+		failureCode: 'SECURITY_ACL_UNAVAILABLE',
+	});
 }
