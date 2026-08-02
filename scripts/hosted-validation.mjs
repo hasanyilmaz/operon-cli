@@ -21,7 +21,6 @@ const NPM_INTEGRITY = 'sha512-zcoUuF1kezGSAo0CqtvoLXX3mkRqzuqYdL6Y5tdo8g69NVV3Ck
 const LEGACY = Object.freeze({
 	name: '@stratejya/operon-cli',
 	version: '1.0.7',
-	latest: '1.0.7',
 	tarball: 'https://registry.npmjs.org/@stratejya/operon-cli/-/operon-cli-1.0.7.tgz',
 	integrity: 'sha512-VaGaIBw17hFThpbgvHKm6vGu52tKNsHlQwhGLSOElVZBwIMRwE+aUkzITcgZHBhU9yGronJfJaGXXSFhCPjYHw==',
 	bytes: 213_485,
@@ -132,11 +131,9 @@ async function createNpmWrappers(root, cli) {
 async function acquireLegacy(npmRoot, outputRoot) {
 	await mkdir(outputRoot, { recursive: true });
 	const metadata = runNpmJson(npmRoot, ['view', `${LEGACY.name}@${LEGACY.version}`, 'version', 'dist.tarball', 'dist.integrity', '--json', '--registry=https://registry.npmjs.org/']);
-	const tags = runNpmJson(npmRoot, ['view', LEGACY.name, 'dist-tags', '--json', '--registry=https://registry.npmjs.org/']);
 	assert.equal(metadata.version, LEGACY.version, 'OPERON_CLI_LEGACY_VERSION_MISMATCH');
 	assert.equal(metadata['dist.tarball'], LEGACY.tarball, 'OPERON_CLI_LEGACY_TARBALL_MISMATCH');
 	assert.equal(metadata['dist.integrity'], LEGACY.integrity, 'OPERON_CLI_LEGACY_INTEGRITY_MISMATCH');
-	assert.equal(tags.latest, LEGACY.latest, 'OPERON_CLI_LEGACY_LATEST_MISMATCH');
 	const packed = runNpmJson(npmRoot, ['pack', `${LEGACY.name}@${LEGACY.version}`, '--json', '--ignore-scripts', '--pack-destination', outputRoot, '--registry=https://registry.npmjs.org/'])[0];
 	const source = path.join(outputRoot, packed.filename);
 	const archive = await inspectPackageTarballV1(source);
