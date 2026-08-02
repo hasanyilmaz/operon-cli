@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
-import { createHmac, randomBytes, randomUUID } from 'node:crypto';
+import { createHmac, randomBytes } from 'node:crypto';
 import { copyFile, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -114,9 +114,9 @@ async function testProcessTreeTermination(): Promise<void> {
 }
 
 async function testNamedPipeRoundTrip(root: string): Promise<void> {
-	const endpoint = `\\\\.\\pipe\\operon-ci-${randomUUID()}`;
 	const authSecret = randomBytes(32).toString('hex');
 	const serverInstanceId = randomBytes(32).toString('hex');
+	const endpoint = `\\\\.\\pipe\\operon-${serverInstanceId}`;
 	const localAppData = path.join(root, 'Local App Data');
 	const requestRoot = path.join(localAppData, 'Operon', 'runtime');
 	const vault = path.join(root, 'pipe-vault');
