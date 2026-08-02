@@ -182,6 +182,11 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		assertCommandFailed(['compare-candidates', input, path.join(root, 'drift-output')]);
 		await writeFile(drifted, JSON.stringify({ canonical, evidence: evidenceFor('canonical-windows-2025', { runId: 'other-run' }) }));
 		assertCommandFailed(['compare-candidates', input, path.join(root, 'cross-run-output')]);
+		const legacyWindowsImage = evidenceFor('canonical-windows-2025');
+		legacyWindowsImage.runner.imageOs = 'win25';
+		await writeFile(drifted, JSON.stringify({ canonical, evidence: legacyWindowsImage }));
+		assertCommandFailed(['compare-candidates', input, path.join(root, 'legacy-windows-image-output')]);
+		await writeFile(drifted, JSON.stringify({ canonical, evidence: evidenceFor('canonical-windows-2025') }));
 		const unexpected = path.join(input, 'canonical-unexpected');
 		await mkdir(unexpected, { recursive: true });
 		await writeFile(path.join(unexpected, 'operon-cli-1.0.8.tgz'), fixture.tarball);
@@ -206,7 +211,7 @@ function evidenceFor(name, githubOverrides = {}) {
 		'canonical-ubuntu-24.04': { runnerId: 'ubuntu-24.04', os: 'Linux', imageOs: 'ubuntu24', platform: 'linux' },
 		'canonical-macos-14': { runnerId: 'macos-14', os: 'macOS', imageOs: 'macos14', platform: 'darwin' },
 		'canonical-windows-2022': { runnerId: 'windows-2022', os: 'Windows', imageOs: 'win22', platform: 'win32' },
-		'canonical-windows-2025': { runnerId: 'windows-2025', os: 'Windows', imageOs: 'win25', platform: 'win32' },
+		'canonical-windows-2025': { runnerId: 'windows-2025', os: 'Windows', imageOs: 'win25-vs2026', platform: 'win32' },
 	}[name];
 	assert.ok(producer);
 	return {

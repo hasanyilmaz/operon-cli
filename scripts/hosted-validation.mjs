@@ -192,7 +192,7 @@ async function compareCandidates(inputRoot, outputRoot) {
 		['canonical-ubuntu-24.04', { runnerId: 'ubuntu-24.04', runnerOs: 'Linux', imageOs: 'ubuntu24', platform: 'linux' }],
 		['canonical-macos-14', { runnerId: 'macos-14', runnerOs: 'macOS', imageOs: 'macos14', platform: 'darwin' }],
 		['canonical-windows-2022', { runnerId: 'windows-2022', runnerOs: 'Windows', imageOs: 'win22', platform: 'win32' }],
-		['canonical-windows-2025', { runnerId: 'windows-2025', runnerOs: 'Windows', imageOs: 'win25', platform: 'win32' }],
+		['canonical-windows-2025', { runnerId: 'windows-2025', runnerOs: 'Windows', imageOs: 'win25-vs2026', platform: 'win32' }],
 	]);
 	const manifests = [];
 	for (const directory of await readdir(inputRoot, { withFileTypes: true })) {
