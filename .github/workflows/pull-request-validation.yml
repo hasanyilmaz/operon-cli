@@ -1,0 +1,108 @@
+name: Pull request validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  CI: "1"
+  TZ: UTC
+  NO_COLOR: "1"
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+jobs:
+  workflow-policy:
+    name: PR workflow policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - run: node scripts/pull-request-validation.mjs workflow-check
+      - run: node scripts/pull-request-validation.mjs hosted-identity-check
+
+  platform-validation:
+    name: PR ${{ matrix.id }}
+    needs: workflow-policy
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - id: ubuntu-24.04
+            os: ubuntu-24.04
+          - id: macos-14
+            os: macos-14
+          - id: windows-2022
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - run: node scripts/pull-request-validation.mjs hosted-identity-check
+      - name: Isolate anonymous registry access
+        run: |
+          Remove-Item Env:NODE_AUTH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:NPM_TOKEN -ErrorAction SilentlyContinue
+          $env:NPM_CONFIG_USERCONFIG = Join-Path $env:RUNNER_TEMP 'empty-operon.npmrc'
+          $env:NPM_CONFIG_CACHE = Join-Path $env:RUNNER_TEMP 'npm-cache'
+          New-Item -ItemType File -Force $env:NPM_CONFIG_USERCONFIG | Out-Null
+          "NPM_CONFIG_USERCONFIG=$env:NPM_CONFIG_USERCONFIG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "NPM_CONFIG_CACHE=$env:NPM_CONFIG_CACHE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: node scripts/hosted-validation.mjs acquire-npm "${{ runner.temp }}/operon-npm"
+      - run: node scripts/hosted-validation.mjs install-script-check
+      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" ci --include=dev --no-audit --no-fund
+      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" cache verify
+      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" test
+      - name: Native Windows evidence
+        if: runner.os == 'Windows'
+        run: node scripts/run-typescript-tests.mjs test/hosted
+      - name: Guard tracked state
+        run: |
+          $dirty = git status --porcelain --untracked-files=no
+          if ($dirty) { throw "OPERON_CLI_PR_TRACKED_MUTATION`n$dirty" }
+
+  pr-validation-gate:
+    name: PR validation gate
+    if: ${{ always() }}
+    needs: [workflow-policy, platform-validation]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every blocking job
+        run: |
+          $results = @(
+            "${{ needs.workflow-policy.result }}",
+            "${{ needs.platform-validation.result }}"
+          )
+          if ($results.Where({ $_ -ne 'success' }).Count -ne 0) {
+            throw "OPERON_CLI_PR_VALIDATION_FAILED:$($results -join ',')"
+          }
