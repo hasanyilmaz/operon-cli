@@ -41,9 +41,9 @@ checklist below.
 npm install --global @stratejya/operon-cli
 ```
 
-Public npm installation becomes available only after the package is published.
-Before then, release-candidate testing must use the exact tarball supplied by
-the Operon release process.
+Stable Operon CLI releases are installed from npm. Testing an unpublished
+release candidate must use the exact reviewed tarball supplied by the Operon
+release process.
 
 Operon never starts Obsidian automatically. Start Obsidian, open the intended
 vault, and keep it running before using live commands.

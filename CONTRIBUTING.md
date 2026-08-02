@@ -37,7 +37,7 @@ node scripts/hosted-validation.mjs workflow-check
 - Do not manually edit generated schemas, declarations, manifests, or snapshot
   identities. Use the repository generation checks and explain any intentional
   refresh in the pull request.
-- Do not change the package version, `private` flag, publishing workflow,
+- Do not change the package version, package publication boundary, publishing workflow,
   provenance settings, tags, or release metadata in an ordinary contribution.
 - Production builds must keep persistent read enabled and frame timing disabled.
 

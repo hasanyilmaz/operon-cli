@@ -10,11 +10,16 @@ test('standalone package boundary is closed', async () => {
 	const document = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
 	assert.equal(document.name, '@stratejya/operon-cli');
 	assert.equal(document.version, '1.0.8');
-	assert.equal(document.private, true);
+	assert.equal('private' in document, false);
 	assert.deepEqual(document.dependencies ?? {}, {});
 	assert.deepEqual(document.optionalDependencies ?? {}, {});
 	assert.equal(document.repository.url, 'git+https://github.com/hasanyilmaz/operon-cli.git');
 	assert.equal('directory' in document.repository, false);
+	assert.deepEqual(document.publishConfig, {
+		access: 'public',
+		registry: 'https://registry.npmjs.org/',
+		provenance: true,
+	});
 	const files = document.files.join('\n');
 	for (const forbidden of ['vendor/', 'src/', 'scripts/', 'test/', 'snapshot-manifest']) {
 		assert.equal(files.includes(forbidden), false);

@@ -4,8 +4,8 @@
 
 | Version | Status |
 | --- | --- |
-| `1.0.7` | Current public npm release; supported until `1.0.8` is published |
-| `main` / `1.0.8` candidate | Pre-release source; security reports are accepted |
+| Current npm release | Supported |
+| `main` | Unreleased source; security reports are accepted |
 | Older releases | Unsupported |
 
 Operon CLI communicates with Operon's live Agent Runtime inside Obsidian. The
