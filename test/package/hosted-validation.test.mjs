@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 import { gzipSync } from 'node:zlib';
 import { EXPECTED_PACKAGE_PATHS_V1 } from '../../scripts/package-archive.mjs';
+import { OPERON_CLI_RELEASE_V1 } from '../../scripts/release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const helper = path.join(projectRoot, 'scripts', 'hosted-validation.mjs');
@@ -68,21 +69,12 @@ test('hosted identity is anchored to the repository, main dispatch, and valid ru
 	]) assertCommandFailed(['hosted-identity-check'], { ...valid, ...overrides });
 });
 
-test('candidate identity is pinned to the accepted Stage 3.6 artifact', async () => {
+test('candidate identity is pinned to the accepted Stage 6 release artifact', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-candidate-baseline-'));
 	try {
 		const accepted = {
-			package: { name: '@stratejya/operon-cli', version: '1.0.8' },
-			tarball: {
-				bytes: 214_672,
-				sha256: '9b47b5fa36c004111c1d0e6c52a7de057c48ad3c5754d7b4ff1819a333e047fc',
-				sha512: 'WHe+4k+Ak4Up8QRIjJ9h3F6xnwWsdiY7+Z3gWGFK7YolZWKOyUR5xJy4YrlmrLqCBZvBI+dfTDVIyeDXLBoyvQ==',
-			},
-			inventory: Array.from({ length: 41 }, () => ({})),
-			executable: { bytes: 514_533, sha256: '5f8c2917ab55e79f9d3608e3f253bd8a2e24341b301ca386e16135bbc3a2ba6f', mode: 0o755 },
-			manifest: { bytes: 51_235, sha256: '5bc2d14a94f2edec2154d3df901291ff9895a6372ad16dac0bf0ef26ea389c6a', mode: 0o644 },
-			schemas: 'e843f87facf647617b613f3cb1d19ffd858054581a943aeab3ebff25b67db247',
-			declarations: '2d1043363a96c156086c4b974bb43d0cd151acc94663a50d5834759fa4d2b45d',
+			...OPERON_CLI_RELEASE_V1,
+			inventory: Array.from({ length: OPERON_CLI_RELEASE_V1.inventoryEntries }, () => ({})),
 		};
 		const identity = path.join(root, 'identity.json');
 		await writeFile(identity, JSON.stringify(accepted));

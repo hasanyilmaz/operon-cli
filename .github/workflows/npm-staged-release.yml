@@ -1,0 +1,187 @@
+name: npm staged release
+
+on:
+  workflow_dispatch:
+    inputs:
+      accepted_run_id:
+        description: Successful Hosted validation run ID
+        required: true
+        type: string
+      expected_commit_sha:
+        description: Exact release commit SHA
+        required: true
+        type: string
+      expected_tarball_sha256:
+        description: Exact accepted tarball SHA-256
+        required: true
+        type: string
+      expected_manifest_sha256:
+        description: Exact accepted artifact manifest SHA-256
+        required: true
+        type: string
+      confirmation:
+        description: Exact stage confirmation phrase
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: npm-staged-release-1.0.8
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  CI: "1"
+  TZ: UTC
+  NO_COLOR: "1"
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+jobs:
+  validate-evidence:
+    name: Validate accepted hosted evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Validate release workflow and dispatch identity
+        env:
+          ACCEPTED_RUN_ID: ${{ inputs.accepted_run_id }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
+          EXPECTED_TARBALL_SHA256: ${{ inputs.expected_tarball_sha256 }}
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+          RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          node scripts/npm-staged-release.mjs workflow-check
+          node scripts/npm-staged-release.mjs identity-check \
+            "$EXPECTED_COMMIT_SHA" \
+            "$ACCEPTED_RUN_ID" \
+            "$EXPECTED_TARBALL_SHA256" \
+            "$EXPECTED_MANIFEST_SHA256" \
+            "$RELEASE_CONFIRMATION"
+      - name: Read accepted hosted run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACCEPTED_RUN_ID: ${{ inputs.accepted_run_id }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
+        run: |
+          gh api "repos/hasanyilmaz/operon-cli/actions/runs/$ACCEPTED_RUN_ID" > "${RUNNER_TEMP}/hosted-run.json"
+          gh api "repos/hasanyilmaz/operon-cli/actions/runs/$ACCEPTED_RUN_ID/jobs?per_page=100" > "${RUNNER_TEMP}/hosted-jobs.json"
+          node scripts/npm-staged-release.mjs run-check \
+            "${RUNNER_TEMP}/hosted-run.json" \
+            "$EXPECTED_COMMIT_SHA" \
+            "$ACCEPTED_RUN_ID"
+          node scripts/npm-staged-release.mjs jobs-check "${RUNNER_TEMP}/hosted-jobs.json"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: canonical-candidate
+          path: ${{ runner.temp }}/canonical-candidate
+          github-token: ${{ github.token }}
+          repository: hasanyilmaz/operon-cli
+          run-id: ${{ inputs.accepted_run_id }}
+      - name: Verify exact accepted artifact
+        env:
+          ACCEPTED_RUN_ID: ${{ inputs.accepted_run_id }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
+          EXPECTED_TARBALL_SHA256: ${{ inputs.expected_tarball_sha256 }}
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+        run: |
+          node scripts/npm-staged-release.mjs artifact-check \
+            "${RUNNER_TEMP}/canonical-candidate" \
+            "$EXPECTED_TARBALL_SHA256" \
+            "$EXPECTED_MANIFEST_SHA256" \
+            "$EXPECTED_COMMIT_SHA" \
+            "$ACCEPTED_RUN_ID"
+
+  stage-package:
+    name: Stage exact registry artifact
+    needs: validate-evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: npm-staging
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          registry-url: https://registry.npmjs.org/
+          package-manager-cache: false
+      - name: Revalidate dispatch identity
+        env:
+          ACCEPTED_RUN_ID: ${{ inputs.accepted_run_id }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
+          EXPECTED_TARBALL_SHA256: ${{ inputs.expected_tarball_sha256 }}
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+          RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          node scripts/npm-staged-release.mjs identity-check \
+            "$EXPECTED_COMMIT_SHA" \
+            "$ACCEPTED_RUN_ID" \
+            "$EXPECTED_TARBALL_SHA256" \
+            "$EXPECTED_MANIFEST_SHA256" \
+            "$RELEASE_CONFIRMATION"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: canonical-candidate
+          path: ${{ runner.temp }}/canonical-candidate
+          github-token: ${{ github.token }}
+          repository: hasanyilmaz/operon-cli
+          run-id: ${{ inputs.accepted_run_id }}
+      - name: Reverify artifact and acquire publish-only npm
+        env:
+          ACCEPTED_RUN_ID: ${{ inputs.accepted_run_id }}
+          EXPECTED_COMMIT_SHA: ${{ inputs.expected_commit_sha }}
+          EXPECTED_TARBALL_SHA256: ${{ inputs.expected_tarball_sha256 }}
+          EXPECTED_MANIFEST_SHA256: ${{ inputs.expected_manifest_sha256 }}
+        run: |
+          node scripts/npm-staged-release.mjs artifact-check \
+            "${RUNNER_TEMP}/canonical-candidate" \
+            "$EXPECTED_TARBALL_SHA256" \
+            "$EXPECTED_MANIFEST_SHA256" \
+            "$EXPECTED_COMMIT_SHA" \
+            "$ACCEPTED_RUN_ID"
+          node scripts/npm-staged-release.mjs acquire-npm "${RUNNER_TEMP}/publish-npm"
+      - name: npm stage publish exact accepted tarball
+        run: |
+          "${RUNNER_TEMP}/publish-npm/npm" stage publish \
+            "${RUNNER_TEMP}/canonical-candidate/operon-cli-1.0.8.tgz" \
+            --tag latest \
+            --access public \
+            --ignore-scripts \
+            --registry https://registry.npmjs.org/
+
+  npm-staged-release-gate:
+    name: npm staged release gate
+    if: ${{ always() }}
+    needs: [validate-evidence, stage-package]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Require validation and staging success
+        run: |
+          test "${{ needs.validate-evidence.result }}" = success
+          test "${{ needs.stage-package.result }}" = success

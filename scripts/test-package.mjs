@@ -14,6 +14,7 @@ import {
 	resolveTrustedWindowsCommandProcessorV1,
 	windowsShimVersionInvocationV1,
 } from './windows-command.mjs';
+import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const npmExecPath = process.env.npm_execpath;
@@ -43,7 +44,12 @@ try {
 		assert.equal(file.mode, expectedMode, `Unexpected package mode: ${file.path}`);
 	}
 	const packageDocument = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
-	assert.equal(packageDocument.private, true);
+	assert.equal('private' in packageDocument, false);
+	assert.deepEqual(packageDocument.publishConfig, {
+		access: 'public',
+		registry: 'https://registry.npmjs.org/',
+		provenance: true,
+	});
 	const configRoot = path.join(temporaryRoot, 'config');
 	await mkdir(configRoot, { recursive: true });
 	const sentinel = path.join(installRoot, 'unowned-sentinel.json');
@@ -88,8 +94,8 @@ try {
 		], projectRoot)[0];
 		const tarball = path.join(packRoot, pack.filename);
 		const archive = await normalizeOperonPackageTarballV1(tarball);
-		assert.equal(archive.bytes, 214_672, 'OPERON_CLI_CANDIDATE_BYTES_MISMATCH');
-		assert.equal(archive.sha256, '9b47b5fa36c004111c1d0e6c52a7de057c48ad3c5754d7b4ff1819a333e047fc', 'OPERON_CLI_CANDIDATE_HASH_MISMATCH');
+		assert.equal(archive.bytes, OPERON_CLI_RELEASE_V1.tarball.bytes, 'OPERON_CLI_CANDIDATE_BYTES_MISMATCH');
+		assert.equal(archive.sha256, OPERON_CLI_RELEASE_V1.tarball.sha256, 'OPERON_CLI_CANDIDATE_HASH_MISMATCH');
 		pack.size = archive.bytes;
 		pack.files = archive.entries.map(entry => ({
 			path: entry.path.replace(/^package\//u, ''),
@@ -113,6 +119,12 @@ try {
 		const packagedDocument = JSON.parse(packageEntry.content.toString('utf8'));
 		assert.equal(packagedDocument.name, '@stratejya/operon-cli');
 		assert.equal(packagedDocument.version, '1.0.8');
+		assert.equal('private' in packagedDocument, false);
+		assert.deepEqual(packagedDocument.publishConfig, {
+			access: 'public',
+			registry: 'https://registry.npmjs.org/',
+			provenance: true,
+		});
 		const files = archive.entries.map(entry => ({
 			path: entry.path.replace(/^package\//u, ''),
 			mode: entry.mode,

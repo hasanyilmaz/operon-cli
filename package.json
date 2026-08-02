@@ -2,7 +2,6 @@
   "name": "@stratejya/operon-cli",
   "version": "1.0.8",
   "description": "Official command-line client for the Operon Agent Runtime in Obsidian.",
-  "private": true,
   "type": "module",
   "license": "GPL-3.0-or-later",
   "author": "Hasan Yilmaz",
@@ -69,6 +68,7 @@
   ],
   "publishConfig": {
     "access": "public",
+    "registry": "https://registry.npmjs.org/",
     "provenance": true
   },
   "scripts": {

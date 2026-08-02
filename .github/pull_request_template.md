@@ -21,7 +21,7 @@ Describe the change and why it is needed.
 - [ ] No plugin-relative production/build/type import was introduced
 - [ ] No production or optional dependency was added
 - [ ] Generated contract artifacts are unchanged, or the reviewed refresh is explained
-- [ ] Package version, `private` flag, publish settings, tags, and releases are unchanged
+- [ ] Package version, publication boundary, publish settings, tags, and releases are unchanged
 - [ ] No credential, vault content, personal path, or generated package archive is included
 
 ## Security reporting
