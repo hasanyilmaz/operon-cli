@@ -9,6 +9,8 @@ import path from 'node:path';
 import { createWindowsBrokerClientV1, PersistentReadTransportV1 } from '../../src/persistent-read-client';
 import { resolveObsidianExecutableV1, terminateProcessTreeV1 } from '../../src/process-platform';
 import { createCanonicalVaultFenceV1 } from '../../src/protocol';
+import type { CliInvocationV1 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/cli';
+import { decodeCliInvocationV1 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/decode';
 import {
 	ensureSecureDirectoryV1,
 	inspectCliStorageSecurityV1,
@@ -168,10 +170,15 @@ async function testNamedPipeRoundTrip(root: string): Promise<void> {
 					type: 'response', sequence: message.sequence, requestId: message.requestId,
 					result: JSON.stringify({ ok: true, requestId: message.requestId }),
 				};
-				else if (message.type === 'stage') response = {
-					type: 'broker-response', sequence: message.sequence, requestId: message.requestId,
-					requestToken: 'T'.repeat(32), stagingReceipt: 'a'.repeat(64), state: 'staged',
-				};
+				else if (message.type === 'stage') {
+					const invocation = decodeCliInvocationV1(JSON.parse(String(message.invocation)));
+					assert.ok(invocation.ok, 'broker stage invocation satisfies Runtime V1');
+					assert.equal(invocation.value.requestId, message.requestId, 'broker request identity');
+					response = {
+						type: 'broker-response', sequence: message.sequence, requestId: message.requestId,
+						requestToken: 'T'.repeat(32), stagingReceipt: 'a'.repeat(64), state: 'staged',
+					};
+				}
 				else if (message.type === 'status') response = {
 					type: 'broker-response', sequence: message.sequence, requestId: message.requestId, state: 'staged',
 				};
@@ -212,7 +219,23 @@ async function testNamedPipeRoundTrip(root: string): Promise<void> {
 		}
 		const broker = await createWindowsBrokerClientV1({ vaultSha256: vaultFence.sha256 });
 		try {
-			assert.deepEqual(await broker.stage({} as never), { requestToken: 'T'.repeat(32), stagingReceipt: 'a'.repeat(64) });
+			const stageInvocation = {
+				contractVersion: 1,
+				kind: 'cli-invocation',
+				requestId: 'windows-native-stage',
+				command: 'health',
+				mode: 'live',
+				clientVersion: '1.0.8',
+				compatibility: { contractVersion: 1, runtimeApi: { min: 1, max: 1 } },
+				cliContract: { min: 1, max: 1 },
+				expectedVaultSha256: vaultFence.sha256,
+				readinessTimeoutMs: 15_000,
+			} satisfies CliInvocationV1;
+			const decodedStageInvocation = decodeCliInvocationV1(stageInvocation);
+			assert.ok(decodedStageInvocation.ok, 'hosted stage fixture satisfies Runtime V1');
+			assert.deepEqual(await broker.stage(decodedStageInvocation.value), {
+				requestToken: 'T'.repeat(32), stagingReceipt: 'a'.repeat(64),
+			});
 			assert.deepEqual(await broker.status('T'.repeat(32)), { state: 'staged' });
 			assert.deepEqual(await broker.cancel('T'.repeat(32)), { cancelled: true, state: 'unknown' });
 		} finally {
