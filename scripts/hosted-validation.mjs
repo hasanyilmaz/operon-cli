@@ -6,7 +6,11 @@ import { chmod, cp, lstat, mkdir, readFile, readdir, rename, writeFile } from 'n
 import path, { delimiter, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createChildEnvironmentWithPathV1 } from './child-process-environment.mjs';
-import { assertOperonPackageInventoryV1, inspectPackageTarballV1 } from './package-archive.mjs';
+import {
+	assertOperonPackageInventoryV1,
+	inspectPackageTarballV1,
+	normalizeOperonPackageTarballV1,
+} from './package-archive.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NPM_VERSION = '11.12.1';
@@ -164,7 +168,7 @@ async function createCandidate(npmRoot, outputRoot, runnerId) {
 	const source = path.join(outputRoot, packed.filename);
 	const destination = path.join(outputRoot, 'operon-cli-1.0.8.tgz');
 	if (source !== destination) await rename(source, destination);
-	const archive = await inspectPackageTarballV1(destination);
+	const archive = await normalizeOperonPackageTarballV1(destination);
 	assertOperonPackageInventoryV1(archive.entries);
 	assertNoPrivateMarkers(archive.entries);
 	const canonical = {

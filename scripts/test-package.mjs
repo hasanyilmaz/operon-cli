@@ -5,7 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createChildEnvironmentWithPathV1 } from './child-process-environment.mjs';
-import { assertOperonPackageInventoryV1, inspectPackageTarballV1 } from './package-archive.mjs';
+import {
+	assertOperonPackageInventoryV1,
+	inspectPackageTarballV1,
+	normalizeOperonPackageTarballV1,
+} from './package-archive.mjs';
 import {
 	assertWindowsCommandPathSafeV1,
 	resolveTrustedWindowsCommandProcessorV1,
@@ -23,7 +27,7 @@ try {
 	const externalCandidate = process.env.OPERON_CLI_CANDIDATE_TARBALL;
 	const { pack, tarball } = externalCandidate
 		? await inspectExternalCandidate(externalCandidate)
-		: createLocalCandidate();
+		: await createLocalCandidate();
 	assert.equal(pack.name, '@stratejya/operon-cli');
 	assert.equal(pack.version, '1.0.8');
 	assert.equal(pack.files.length, 41);
@@ -74,7 +78,7 @@ try {
 	assert.equal(await readFile(configSentinel, 'utf8'), '{"preserved":true}\n');
 	console.log(JSON.stringify({ status: 'passed', entries: pack.files.length, tarballBytes: pack.size }));
 
-	function createLocalCandidate() {
+	async function createLocalCandidate() {
 		const pack = runJson([
 			'pack',
 			'--json',
@@ -82,7 +86,17 @@ try {
 			'--pack-destination',
 			packRoot,
 		], projectRoot)[0];
-		return { pack, tarball: path.join(packRoot, pack.filename) };
+		const tarball = path.join(packRoot, pack.filename);
+		const archive = await normalizeOperonPackageTarballV1(tarball);
+		assert.equal(archive.bytes, 214_672, 'OPERON_CLI_CANDIDATE_BYTES_MISMATCH');
+		assert.equal(archive.sha256, '9b47b5fa36c004111c1d0e6c52a7de057c48ad3c5754d7b4ff1819a333e047fc', 'OPERON_CLI_CANDIDATE_HASH_MISMATCH');
+		pack.size = archive.bytes;
+		pack.files = archive.entries.map(entry => ({
+			path: entry.path.replace(/^package\//u, ''),
+			mode: entry.mode,
+			size: entry.size,
+		}));
+		return { pack, tarball };
 	}
 	async function inspectExternalCandidate(candidate) {
 		assert.ok(path.isAbsolute(candidate), 'OPERON_CLI_CANDIDATE_TARBALL_INVALID');
