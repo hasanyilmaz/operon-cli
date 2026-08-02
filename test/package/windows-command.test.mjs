@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
 	assertWindowsCommandPathSafeV1,
 	resolveTrustedWindowsCommandProcessorV1,
+	windowsShimVersionInvocationV1,
 } from '../../scripts/windows-command.mjs';
 
 test('trusted Windows command processor requires a local drive root and safe ancestors', () => {
@@ -53,6 +54,38 @@ test('Windows command shim paths reject shell metacharacters and non-local roots
 		'operon.cmd',
 	]) assert.throws(
 		() => assertWindowsCommandPathSafeV1(value),
+		/OPERON_CLI_WINDOWS_COMMAND_PATH_INVALID/u,
+	);
+});
+
+test('Windows shim invocations separate direct CMD and PATH resolution without path quoting', () => {
+	const shim = 'C:\\Temp Folder\\Ünicode\\operon.cmd';
+	assert.deepEqual(windowsShimVersionInvocationV1(shim), {
+		args: ['/d', '/s', '/c', 'operon.cmd version'],
+		cwd: 'C:\\Temp Folder\\Ünicode',
+		shell: false,
+		windowsHide: true,
+	});
+	assert.deepEqual(windowsShimVersionInvocationV1(shim, {
+		resolveFromPath: true,
+		cwd: 'C:\\Isolated Config',
+	}), {
+		args: ['/d', '/s', '/c', 'operon version'],
+		cwd: 'C:\\Isolated Config',
+		shell: false,
+		windowsHide: true,
+	});
+	for (const options of [
+		{ resolveFromPath: true, cwd: 'C:\\Temp Folder\\Ünicode' },
+		{ resolveFromPath: true, cwd: 'relative' },
+		{ resolveFromPath: true, cwd: 'C:\\Config\0Root' },
+		{ cwd: 'C:\\Config' },
+	]) assert.throws(
+		() => windowsShimVersionInvocationV1(shim, options),
+		/OPERON_CLI_WINDOWS_COMMAND_(CWD|OPTIONS)_INVALID/u,
+	);
+	assert.throws(
+		() => windowsShimVersionInvocationV1('C:\\Temp Folder\\Ünicode\\other.cmd'),
 		/OPERON_CLI_WINDOWS_COMMAND_PATH_INVALID/u,
 	);
 });

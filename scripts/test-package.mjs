@@ -11,8 +11,8 @@ import {
 	normalizeOperonPackageTarballV1,
 } from './package-archive.mjs';
 import {
-	assertWindowsCommandPathSafeV1,
 	resolveTrustedWindowsCommandProcessorV1,
+	windowsShimVersionInvocationV1,
 } from './windows-command.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -182,19 +182,25 @@ try {
 			assert.equal(document.includes(temporaryRoot), false, 'Windows shim must not embed its temporary prefix.');
 		}
 		const cmdExecutable = resolveTrustedWindowsCommandProcessorV1();
-		assertWindowsCommandPathSafeV1(cmdShim);
-		const directResult = spawnSync(cmdExecutable, ['/d', '/s', '/c', `"${cmdShim}" version`], {
+		const directInvocation = windowsShimVersionInvocationV1(cmdShim);
+		const directResult = spawnSync(cmdExecutable, directInvocation.args, {
 			encoding: 'utf8',
 			env: packageEnvironment(),
-			windowsHide: true,
-			shell: false,
+			cwd: directInvocation.cwd,
+			windowsHide: directInvocation.windowsHide,
+			shell: directInvocation.shell,
 		});
 		assertCommandVersion(directResult, expected, 'operon.cmd');
-		const pathResult = spawnSync(cmdExecutable, ['/d', '/s', '/c', 'operon version'], {
+		const pathInvocation = windowsShimVersionInvocationV1(cmdShim, {
+			resolveFromPath: true,
+			cwd: configRoot,
+		});
+		const pathResult = spawnSync(cmdExecutable, pathInvocation.args, {
 			encoding: 'utf8',
 			env: packageEnvironment(),
-			windowsHide: true,
-			shell: false,
+			cwd: pathInvocation.cwd,
+			windowsHide: pathInvocation.windowsHide,
+			shell: pathInvocation.shell,
 		});
 		assertCommandVersion(pathResult, expected, 'PATH-resolved operon');
 		const systemRoot = Object.entries(process.env)

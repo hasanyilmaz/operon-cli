@@ -56,6 +56,39 @@ export function assertWindowsCommandPathSafeV1(value) {
 	return value;
 }
 
+export function windowsShimVersionInvocationV1(shimPath, options = {}) {
+	const safeShimPath = assertWindowsCommandPathSafeV1(shimPath);
+	if (path.win32.basename(safeShimPath).toLocaleLowerCase('en-US') !== 'operon.cmd') {
+		throw new Error('OPERON_CLI_WINDOWS_COMMAND_PATH_INVALID');
+	}
+	const binRoot = path.win32.dirname(safeShimPath);
+	if (options.resolveFromPath === true) {
+		const cwd = options.cwd;
+		if (
+			typeof cwd !== 'string'
+			|| cwd.includes('\0')
+			|| !/^[A-Za-z]:[\\/]/u.test(cwd)
+			|| !path.win32.isAbsolute(cwd)
+			|| samePathV1(cwd, binRoot)
+		) throw new Error('OPERON_CLI_WINDOWS_COMMAND_CWD_INVALID');
+		return Object.freeze({
+			args: Object.freeze(['/d', '/s', '/c', 'operon version']),
+			cwd: path.win32.normalize(cwd),
+			shell: false,
+			windowsHide: true,
+		});
+	}
+	if (options.cwd !== undefined || options.resolveFromPath !== undefined) {
+		throw new Error('OPERON_CLI_WINDOWS_COMMAND_OPTIONS_INVALID');
+	}
+	return Object.freeze({
+		args: Object.freeze(['/d', '/s', '/c', 'operon.cmd version']),
+		cwd: binRoot,
+		shell: false,
+		windowsHide: true,
+	});
+}
+
 function readEnvironmentValueV1(environment, name) {
 	const values = Object.entries(environment)
 		.filter(([key]) => key.toLocaleLowerCase('en-US') === name.toLocaleLowerCase('en-US'))
