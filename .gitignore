@@ -2,6 +2,10 @@ node_modules/
 dist/
 coverage/
 .cache/
+.DS_Store
+.npmrc
+.npmrc.*
+!.npmrc.example
 *.log
 *.tgz
 *.tsbuildinfo

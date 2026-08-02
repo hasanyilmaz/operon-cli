@@ -73,13 +73,16 @@ test('public validation identity accepts an exact pull request merge ref and rej
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-event-'));
 	try {
 		const sha = 'b'.repeat(40);
+		const baseSha = 'c'.repeat(40);
+		const headSha = 'd'.repeat(40);
 		const eventPath = path.join(root, 'pull-request.json');
 		await writeFile(eventPath, JSON.stringify({
 			number: 42,
 			repository: { full_name: 'hasanyilmaz/operon-cli' },
 			pull_request: {
-				merge_commit_sha: sha,
-				base: { ref: 'main', repo: { full_name: 'hasanyilmaz/operon-cli' } },
+				merge_commit_sha: null,
+				base: { ref: 'main', sha: baseSha, repo: { full_name: 'hasanyilmaz/operon-cli' } },
+				head: { ref: 'contributor/change', sha: headSha, repo: { full_name: 'contributor/operon-cli' } },
 			},
 		}));
 		const valid = hostedEnvironment({
@@ -92,6 +95,12 @@ test('public validation identity accepts an exact pull request merge ref and rej
 			GITHUB_EVENT_PATH: eventPath,
 		});
 		assertCommandPassed(['hosted-identity-check'], valid);
+		const exactMergeEvent = JSON.parse(await readFile(eventPath, 'utf8'));
+		exactMergeEvent.pull_request.merge_commit_sha = 'e'.repeat(40);
+		await writeFile(eventPath, JSON.stringify(exactMergeEvent));
+		assertCommandPassed(['hosted-identity-check'], valid);
+		exactMergeEvent.pull_request.merge_commit_sha = null;
+		await writeFile(eventPath, JSON.stringify(exactMergeEvent));
 		for (const overrides of [
 			{ GITHUB_EVENT_NAME: 'pull_request_target' },
 			{ GITHUB_REF: 'refs/pull/41/merge' },
@@ -103,6 +112,28 @@ test('public validation identity accepts an exact pull request merge ref and rej
 		const symlinkPath = path.join(root, 'event-link.json');
 		await symlink(eventPath, symlinkPath);
 		assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: symlinkPath });
+
+		const driftedEventPath = path.join(root, 'pull-request-drift.json');
+		await writeFile(driftedEventPath, JSON.stringify({
+			number: 42,
+			repository: { full_name: 'hasanyilmaz/operon-cli' },
+			pull_request: {
+				merge_commit_sha: 'e'.repeat(40),
+				base: { ref: 'main', sha: baseSha, repo: { full_name: 'hasanyilmaz/operon-cli' } },
+				head: { ref: 'wrong-ref', sha: headSha, repo: { full_name: 'contributor/operon-cli' } },
+			},
+		}));
+		assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: driftedEventPath });
+		await writeFile(driftedEventPath, JSON.stringify({
+			number: 42,
+			repository: { full_name: 'hasanyilmaz/operon-cli' },
+			pull_request: {
+				merge_commit_sha: 'invalid',
+				base: { ref: 'main', sha: baseSha, repo: { full_name: 'hasanyilmaz/operon-cli' } },
+				head: { ref: 'contributor/change', sha: headSha, repo: { full_name: 'contributor/operon-cli' } },
+			},
+		}));
+		assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: driftedEventPath });
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
