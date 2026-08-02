@@ -112,11 +112,13 @@ test('bootstrap npm resolves the bundled CLI without invoking a Windows command 
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-bootstrap-npm-'));
 	try {
 		const executable = path.join(root, 'bin', 'node');
-		const cli = path.join(root, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+		const cli = process.platform === 'win32'
+			? path.join(root, 'bin', 'node_modules', 'npm', 'bin', 'npm-cli.js')
+			: path.join(root, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
 		await mkdir(path.dirname(cli), { recursive: true });
 		await writeFile(cli, '# fixture');
 		const valid = spawnSync(process.execPath, [
-			helper, 'bootstrap-npm-invocation', 'linux', executable, '--version',
+			helper, 'bootstrap-npm-invocation', process.platform, executable, '--version',
 		], { cwd: projectRoot, encoding: 'utf8' });
 		assert.equal(valid.status, 0, valid.stderr);
 		assert.deepEqual(JSON.parse(valid.stdout), {
@@ -126,14 +128,14 @@ test('bootstrap npm resolves the bundled CLI without invoking a Windows command 
 		});
 
 		await rm(cli);
-		assertCommandFailed(['bootstrap-npm-invocation', 'linux', executable, '--version']);
+		assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
 		await mkdir(cli);
-		assertCommandFailed(['bootstrap-npm-invocation', 'linux', executable, '--version']);
+		assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
 		await rm(cli, { recursive: true });
 		const target = path.join(root, 'npm-cli-target.js');
 		await writeFile(target, '# fixture');
 		await symlink(target, cli);
-		assertCommandFailed(['bootstrap-npm-invocation', 'linux', executable, '--version']);
+		assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
