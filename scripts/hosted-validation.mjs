@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { lstatSync } from 'node:fs';
 import { chmod, cp, lstat, mkdir, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import path, { delimiter, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +47,8 @@ switch (command) {
 	case 'compare-candidates': await compareCandidates(required(args[0]), required(args[1])); break;
 	case 'candidate-baseline-check': await candidateBaselineCheck(required(args[0])); break;
 	case 'hosted-identity-check': expectedGithubIdentity(); break;
+	case 'bootstrap-npm-path': console.log(bundledNpmCliPath(requiredText(args[0]), requiredText(args[1]))); break;
+	case 'bootstrap-npm-invocation': console.log(JSON.stringify(bootstrapNpmInvocation(requiredText(args[0]), requiredText(args[1]), args.slice(2)))); break;
 	case 'consumer-toolchain': consumerToolchain(requiredText(args[0]), requiredText(args[1])); break;
 	default: throw new Error(`OPERON_CLI_HOSTED_COMMAND_INVALID:${command ?? ''}`);
 }
@@ -374,7 +377,23 @@ function runBootstrapNpmJson(npmArgs) {
 }
 
 function runBootstrapNpm(npmArgs) {
-	return run(process.platform === 'win32' ? 'npm.cmd' : 'npm', npmArgs, { capture: true });
+	const invocation = bootstrapNpmInvocation(process.platform, process.execPath, npmArgs);
+	return run(invocation.executable, invocation.args, { capture: true, shell: invocation.shell });
+}
+
+function bootstrapNpmInvocation(platform, executable, npmArgs) {
+	const cli = bundledNpmCliPath(platform, executable);
+	const stat = lstatSync(cli);
+	assert.equal(stat.isFile(), true, 'OPERON_CLI_HOSTED_BOOTSTRAP_NPM_CLI_INVALID');
+	assert.equal(stat.isSymbolicLink(), false, 'OPERON_CLI_HOSTED_BOOTSTRAP_NPM_CLI_INVALID');
+	return { executable, args: [cli, ...npmArgs], shell: false };
+}
+
+function bundledNpmCliPath(platform, executable) {
+	if (platform === 'win32') {
+		return path.win32.join(path.win32.dirname(executable), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+	}
+	return path.posix.resolve(path.posix.dirname(executable), '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
 }
 
 function run(executable, commandArgs, options = {}) {
@@ -385,7 +404,7 @@ function run(executable, commandArgs, options = {}) {
 		cwd: options.cwd ?? projectRoot,
 		encoding: 'utf8',
 		stdio: options.capture ? ['ignore', 'pipe', 'pipe'] : (options.stdio ?? ['ignore', 'pipe', 'pipe']),
-		shell: false,
+		shell: options.shell ?? false,
 		env: createChildEnvironmentWithPathV1(process.env, `${pathPrefix}${delimiter}${inheritedPath}`),
 	});
 	if (result.error || result.status !== 0) throw new Error(`OPERON_CLI_HOSTED_COMMAND_FAILED:${executable}:${result.status}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`, { cause: result.error });

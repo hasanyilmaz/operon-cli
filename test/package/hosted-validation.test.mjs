@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -89,6 +89,51 @@ test('candidate identity is pinned to the accepted Stage 3.6 artifact', async ()
 		assertCommandPassed(['candidate-baseline-check', identity]);
 		await writeFile(identity, JSON.stringify({ ...accepted, tarball: { ...accepted.tarball, bytes: accepted.tarball.bytes + 1 } }));
 		assertCommandFailed(['candidate-baseline-check', identity]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('bootstrap npm resolves the bundled CLI without invoking a Windows command shim', async () => {
+	const windows = spawnSync(process.execPath, [
+		helper, 'bootstrap-npm-path', 'win32', String.raw`C:\hostedtoolcache\windows\node\24.18.0\x64\node.exe`,
+	], { cwd: projectRoot, encoding: 'utf8' });
+	assert.equal(windows.status, 0, windows.stderr);
+	assert.equal(
+		windows.stdout.trim(),
+		String.raw`C:\hostedtoolcache\windows\node\24.18.0\x64\node_modules\npm\bin\npm-cli.js`,
+	);
+	const posix = spawnSync(process.execPath, [
+		helper, 'bootstrap-npm-path', 'linux', '/opt/hostedtoolcache/node/24.18.0/x64/bin/node',
+	], { cwd: projectRoot, encoding: 'utf8' });
+	assert.equal(posix.status, 0, posix.stderr);
+	assert.equal(posix.stdout.trim(), '/opt/hostedtoolcache/node/24.18.0/x64/lib/node_modules/npm/bin/npm-cli.js');
+
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-bootstrap-npm-'));
+	try {
+		const executable = path.join(root, 'bin', 'node');
+		const cli = path.join(root, 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+		await mkdir(path.dirname(cli), { recursive: true });
+		await writeFile(cli, '# fixture');
+		const valid = spawnSync(process.execPath, [
+			helper, 'bootstrap-npm-invocation', 'linux', executable, '--version',
+		], { cwd: projectRoot, encoding: 'utf8' });
+		assert.equal(valid.status, 0, valid.stderr);
+		assert.deepEqual(JSON.parse(valid.stdout), {
+			executable,
+			args: [cli, '--version'],
+			shell: false,
+		});
+
+		await rm(cli);
+		assertCommandFailed(['bootstrap-npm-invocation', 'linux', executable, '--version']);
+		await mkdir(cli);
+		assertCommandFailed(['bootstrap-npm-invocation', 'linux', executable, '--version']);
+		await rm(cli, { recursive: true });
+		const target = path.join(root, 'npm-cli-target.js');
+		await writeFile(target, '# fixture');
+		await symlink(target, cli);
+		assertCommandFailed(['bootstrap-npm-invocation', 'linux', executable, '--version']);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
