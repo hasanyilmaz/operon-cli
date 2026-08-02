@@ -19,6 +19,12 @@ test('hosted workflow passes the fail-closed policy guard', () => {
 	assertCommandPassed(['install-script-check']);
 });
 
+test('legacy acquisition pins 1.0.7 without requiring the mutable latest dist-tag', async () => {
+	const source = await readFile(helper, 'utf8');
+	assert.match(source, /view', `\$\{LEGACY\.name\}@\$\{LEGACY\.version\}`/u);
+	assert.doesNotMatch(source, /LEGACY_LATEST_MISMATCH|LEGACY\.latest|dist-tags/u);
+});
+
 test('hosted workflow guard rejects unsafe triggers, permissions, and mutable action refs', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-workflow-negative-'));
 	try {
