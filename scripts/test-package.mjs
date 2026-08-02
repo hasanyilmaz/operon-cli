@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createChildEnvironmentWithPathV1 } from './child-process-environment.mjs';
+import { assertOperonPackageInventoryV1, inspectPackageTarballV1 } from './package-archive.mjs';
 import {
 	assertWindowsCommandPathSafeV1,
 	resolveTrustedWindowsCommandProcessorV1,
@@ -19,16 +20,14 @@ const installRoot = path.join(temporaryRoot, 'operon global prefix Ünicode');
 try {
 	await mkdir(packRoot, { recursive: true });
 	await mkdir(installRoot, { recursive: true });
-	const pack = runJson([
-		'pack',
-		'--json',
-		'--ignore-scripts',
-		'--pack-destination',
-		packRoot,
-	], projectRoot)[0];
+	const externalCandidate = process.env.OPERON_CLI_CANDIDATE_TARBALL;
+	const { pack, tarball } = externalCandidate
+		? await inspectExternalCandidate(externalCandidate)
+		: createLocalCandidate();
 	assert.equal(pack.name, '@stratejya/operon-cli');
 	assert.equal(pack.version, '1.0.8');
 	assert.equal(pack.files.length, 41);
+	assertOperonPackageInventoryV1(pack.files.map(file => ({ ...file, path: `package/${file.path}` })));
 	const paths = pack.files.map(file => file.path).sort();
 	for (const forbidden of ['vendor/', 'src/', 'scripts/', 'test/', 'node_modules/']) {
 		assert.equal(paths.some(file => file.startsWith(forbidden)), false, `Forbidden package path: ${forbidden}`);
@@ -39,14 +38,24 @@ try {
 		const expectedMode = file.path === 'dist/operon.mjs' ? 0o755 : 0o644;
 		assert.equal(file.mode, expectedMode, `Unexpected package mode: ${file.path}`);
 	}
-	const tarball = path.join(packRoot, pack.filename);
 	const packageDocument = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
 	assert.equal(packageDocument.private, true);
 	const configRoot = path.join(temporaryRoot, 'config');
 	await mkdir(configRoot, { recursive: true });
 	const sentinel = path.join(installRoot, 'unowned-sentinel.json');
+	const configSentinel = path.join(configRoot, 'user-config-sentinel.json');
 	await writeFile(sentinel, '{"preserved":true}\n');
+	await writeFile(configSentinel, '{"preserved":true}\n');
 	const legacyTarball = process.env.OPERON_CLI_LEGACY_TARBALL;
+	if (externalCandidate) assert.ok(legacyTarball, 'OPERON_CLI_LEGACY_TARBALL_REQUIRED');
+	if (legacyTarball) {
+		await assertRegularArtifact(legacyTarball, 'OPERON_CLI_LEGACY_TARBALL_INVALID');
+		if (externalCandidate) {
+			const legacyArchive = await inspectPackageTarballV1(legacyTarball);
+			assert.equal(legacyArchive.bytes, 213_485, 'OPERON_CLI_LEGACY_BYTES_MISMATCH');
+			assert.equal(legacyArchive.sha256, 'f03c360ec83663d730d76a5e53e27e4544c82f6c6f1ecfbbc0fba1538cd980a8', 'OPERON_CLI_LEGACY_HASH_MISMATCH');
+		}
+	}
 	if (legacyTarball) {
 		install(legacyTarball);
 		await assertVersion('1.0.7');
@@ -62,12 +71,57 @@ try {
 	run(['uninstall', '--global', '--prefix', installRoot, '--ignore-scripts', '--no-audit', '--no-fund', '@stratejya/operon-cli'], installRoot);
 	await assertUninstalled();
 	assert.equal(await readFile(sentinel, 'utf8'), '{"preserved":true}\n');
+	assert.equal(await readFile(configSentinel, 'utf8'), '{"preserved":true}\n');
 	console.log(JSON.stringify({ status: 'passed', entries: pack.files.length, tarballBytes: pack.size }));
+
+	function createLocalCandidate() {
+		const pack = runJson([
+			'pack',
+			'--json',
+			'--ignore-scripts',
+			'--pack-destination',
+			packRoot,
+		], projectRoot)[0];
+		return { pack, tarball: path.join(packRoot, pack.filename) };
+	}
+	async function inspectExternalCandidate(candidate) {
+		assert.ok(path.isAbsolute(candidate), 'OPERON_CLI_CANDIDATE_TARBALL_INVALID');
+		await assertRegularArtifact(candidate, 'OPERON_CLI_CANDIDATE_TARBALL_INVALID');
+		const archive = await inspectPackageTarballV1(candidate);
+		const manifestPath = process.env.OPERON_CLI_CANDIDATE_MANIFEST;
+		assert.ok(manifestPath && path.isAbsolute(manifestPath), 'OPERON_CLI_CANDIDATE_MANIFEST_REQUIRED');
+		await assertRegularArtifact(manifestPath, 'OPERON_CLI_CANDIDATE_MANIFEST_INVALID');
+		const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+		assert.equal(manifest?.canonical?.tarball?.sha256, archive.sha256, 'OPERON_CLI_CANDIDATE_HASH_MISMATCH');
+		assert.equal(manifest?.canonical?.tarball?.bytes, archive.bytes, 'OPERON_CLI_CANDIDATE_BYTES_MISMATCH');
+		const packageEntry = archive.entries.find(entry => entry.path === 'package/package.json');
+		assert.ok(packageEntry, 'OPERON_CLI_CANDIDATE_PACKAGE_JSON_MISSING');
+		const packagedDocument = JSON.parse(packageEntry.content.toString('utf8'));
+		assert.equal(packagedDocument.name, '@stratejya/operon-cli');
+		assert.equal(packagedDocument.version, '1.0.8');
+		const files = archive.entries.map(entry => ({
+			path: entry.path.replace(/^package\//u, ''),
+			mode: entry.mode,
+			size: entry.size,
+		}));
+		return {
+			tarball: candidate,
+			pack: {
+				name: packagedDocument.name,
+				version: packagedDocument.version,
+				filename: path.basename(candidate),
+				files,
+				size: archive.bytes,
+			},
+		};
+	}
 
 	function install(specifier) {
 		run(['install', '--global', '--prefix', installRoot, '--ignore-scripts', '--no-audit', '--no-fund', '--package-lock=false', specifier], installRoot);
 	}
 	async function assertVersion(expected) {
+		assert.equal(await readFile(sentinel, 'utf8'), '{"preserved":true}\n');
+		assert.equal(await readFile(configSentinel, 'utf8'), '{"preserved":true}\n');
 		const packageRoot = globalPackageRoot();
 		const packageStat = await lstat(packageRoot);
 		assert.equal(packageStat.isDirectory(), true, 'Global package root must be a directory.');
@@ -129,6 +183,21 @@ try {
 			shell: false,
 		});
 		assertCommandVersion(pathResult, expected, 'PATH-resolved operon');
+		const systemRoot = Object.entries(process.env)
+			.find(([key]) => key.toLocaleLowerCase('en-US') === 'systemroot')?.[1];
+		assert.ok(systemRoot && path.win32.isAbsolute(systemRoot), 'OPERON_CLI_WINDOWS_SYSTEM_ROOT_REQUIRED');
+		const windowsPowerShell = path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+		assertCommandVersion(spawnSync(windowsPowerShell, [
+			'-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', powershellShim, 'version',
+		], { encoding: 'utf8', env: packageEnvironment(), windowsHide: true, shell: false }), expected, 'operon.ps1 via Windows PowerShell');
+		const pwsh = path.win32.join(process.env.ProgramFiles ?? '', 'PowerShell', '7', 'pwsh.exe');
+		assertCommandVersion(spawnSync(pwsh, [
+			'-NoLogo', '-NoProfile', '-NonInteractive', '-File', powershellShim, 'version',
+		], { encoding: 'utf8', env: packageEnvironment(), windowsHide: true, shell: false }), expected, 'operon.ps1 via PowerShell 7');
+		const gitBash = path.win32.join(process.env.ProgramFiles ?? '', 'Git', 'bin', 'bash.exe');
+		assertCommandVersion(spawnSync(gitBash, [shellShim, 'version'], {
+			encoding: 'utf8', env: packageEnvironment(), windowsHide: true, shell: false,
+		}), expected, 'operon via Git Bash');
 	}
 	async function assertUninstalled() {
 		await assertPathMissing(globalPackageRoot());
@@ -196,4 +265,11 @@ async function assertPathMissing(target) {
 		if (error instanceof assert.AssertionError) throw error;
 		assert.equal(error?.code, 'ENOENT', `Unexpected path check failure: ${target}`);
 	}
+}
+
+async function assertRegularArtifact(target, failureCode) {
+	assert.ok(path.isAbsolute(target), failureCode);
+	const stat = await lstat(target);
+	assert.equal(stat.isFile(), true, failureCode);
+	assert.equal(stat.isSymbolicLink(), false, failureCode);
 }

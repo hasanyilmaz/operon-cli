@@ -1,0 +1,245 @@
+name: Hosted validation
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: pwsh
+
+env:
+  CI: "1"
+  TZ: UTC
+  NO_COLOR: "1"
+  NPM_CONFIG_AUDIT: "false"
+  NPM_CONFIG_FUND: "false"
+  NPM_CONFIG_UPDATE_NOTIFIER: "false"
+
+jobs:
+  workflow-policy:
+    name: Workflow policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - run: node scripts/hosted-validation.mjs workflow-check
+
+  legacy-baseline:
+    name: Legacy 1.0.7 baseline
+    needs: workflow-policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Isolate anonymous registry access
+        run: |
+          Remove-Item Env:NODE_AUTH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:NPM_TOKEN -ErrorAction SilentlyContinue
+          $env:NPM_CONFIG_USERCONFIG = Join-Path $env:RUNNER_TEMP 'empty-operon.npmrc'
+          $env:NPM_CONFIG_CACHE = Join-Path $env:RUNNER_TEMP 'npm-cache'
+          New-Item -ItemType File -Force $env:NPM_CONFIG_USERCONFIG | Out-Null
+          "NPM_CONFIG_USERCONFIG=$env:NPM_CONFIG_USERCONFIG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "NPM_CONFIG_CACHE=$env:NPM_CONFIG_CACHE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: node scripts/hosted-validation.mjs acquire-npm "${{ runner.temp }}/operon-npm"
+      - run: node scripts/hosted-validation.mjs acquire-legacy "${{ runner.temp }}/operon-npm" "${{ runner.temp }}/legacy"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: legacy-1.0.7
+          path: ${{ runner.temp }}/legacy
+          retention-days: 5
+          if-no-files-found: error
+
+  canonical-build:
+    name: Canonical ${{ matrix.id }}
+    needs: workflow-policy
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - id: ubuntu-24.04
+            os: ubuntu-24.04
+          - id: macos-14
+            os: macos-14
+          - id: windows-2022
+            os: windows-2022
+          - id: windows-2025
+            os: windows-2025
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Isolate anonymous registry access
+        run: |
+          Remove-Item Env:NODE_AUTH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:NPM_TOKEN -ErrorAction SilentlyContinue
+          $env:NPM_CONFIG_USERCONFIG = Join-Path $env:RUNNER_TEMP 'empty-operon.npmrc'
+          $env:NPM_CONFIG_CACHE = Join-Path $env:RUNNER_TEMP 'npm-cache'
+          New-Item -ItemType File -Force $env:NPM_CONFIG_USERCONFIG | Out-Null
+          "NPM_CONFIG_USERCONFIG=$env:NPM_CONFIG_USERCONFIG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "NPM_CONFIG_CACHE=$env:NPM_CONFIG_CACHE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - run: node scripts/hosted-validation.mjs acquire-npm "${{ runner.temp }}/operon-npm"
+      - run: node scripts/hosted-validation.mjs install-script-check
+      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" ci --include=dev --no-audit --no-fund
+      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" cache verify
+      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" test
+      - name: Native Windows evidence
+        if: runner.os == 'Windows'
+        run: node scripts/run-typescript-tests.mjs test/hosted
+      - run: node scripts/hosted-validation.mjs create-candidate "${{ runner.temp }}/operon-npm" "${{ runner.temp }}/candidate-${{ matrix.id }}" "${{ matrix.id }}"
+      - name: Guard tracked state
+        run: |
+          $dirty = git status --porcelain --untracked-files=no
+          if ($dirty) { throw "OPERON_CLI_HOSTED_TRACKED_MUTATION`n$dirty" }
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canonical-${{ matrix.id }}
+          path: ${{ runner.temp }}/candidate-${{ matrix.id }}
+          retention-days: 5
+          if-no-files-found: error
+
+  canonical-parity:
+    name: Canonical cross-OS parity
+    needs: canonical-build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: canonical-*
+          path: ${{ runner.temp }}/canonical-inputs
+          merge-multiple: false
+      - run: node scripts/hosted-validation.mjs compare-candidates "${{ runner.temp }}/canonical-inputs" "${{ runner.temp }}/canonical-candidate"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canonical-candidate
+          path: ${{ runner.temp }}/canonical-candidate
+          retention-days: 5
+          if-no-files-found: error
+
+  compatibility:
+    name: Compatibility ${{ matrix.os }} Node ${{ matrix.node }}
+    needs: [legacy-baseline, canonical-parity]
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-2022]
+        node: [22.23.2, 24.18.0, 26.5.1]
+        include:
+          - node: 22.23.2
+            npm: 10.9.8
+          - node: 24.18.0
+            npm: 11.16.0
+          - node: 26.5.1
+            npm: 11.17.0
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - name: Isolate anonymous registry access
+        run: |
+          Remove-Item Env:NODE_AUTH_TOKEN -ErrorAction SilentlyContinue
+          Remove-Item Env:NPM_TOKEN -ErrorAction SilentlyContinue
+          $env:NPM_CONFIG_USERCONFIG = Join-Path $env:RUNNER_TEMP 'empty-operon.npmrc'
+          $env:NPM_CONFIG_CACHE = Join-Path $env:RUNNER_TEMP 'npm-cache'
+          New-Item -ItemType File -Force $env:NPM_CONFIG_USERCONFIG | Out-Null
+          "NPM_CONFIG_USERCONFIG=$env:NPM_CONFIG_USERCONFIG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "NPM_CONFIG_CACHE=$env:NPM_CONFIG_CACHE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: canonical-candidate
+          path: ${{ runner.temp }}/canonical-candidate
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: legacy-1.0.7
+          path: ${{ runner.temp }}/legacy
+      - run: node scripts/hosted-validation.mjs consumer-toolchain "${{ matrix.node }}" "${{ matrix.npm }}"
+      - run: node scripts/hosted-validation.mjs install-script-check
+      - run: npm ci --include=dev --no-audit --no-fund
+      - run: npm cache verify
+      - run: npm run snapshot:negative:test
+      - run: npm run generate:check
+      - run: npm run snapshot:parity:test
+      - run: npm run lint:strict
+      - run: npm run typecheck:source
+      - run: npm run test:portable
+      - run: npm run performance:test
+      - run: npm run build:dist
+      - name: Consume canonical package
+        run: |
+          $env:OPERON_CLI_CANDIDATE_TARBALL = "${{ runner.temp }}/canonical-candidate/operon-cli-1.0.8.tgz"
+          $env:OPERON_CLI_CANDIDATE_MANIFEST = "${{ runner.temp }}/canonical-candidate/artifact-manifest.json"
+          $env:OPERON_CLI_LEGACY_TARBALL = "${{ runner.temp }}/legacy/operon-cli-1.0.7.tgz"
+          npm run package:test
+      - name: Guard tracked state
+        run: |
+          $dirty = git status --porcelain --untracked-files=no
+          if ($dirty) { throw "OPERON_CLI_HOSTED_TRACKED_MUTATION`n$dirty" }
+
+  hosted-validation-gate:
+    name: Hosted validation gate
+    if: ${{ always() }}
+    needs: [workflow-policy, legacy-baseline, canonical-build, canonical-parity, compatibility]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every blocking job
+        run: |
+          $results = @(
+            "${{ needs.workflow-policy.result }}",
+            "${{ needs.legacy-baseline.result }}",
+            "${{ needs.canonical-build.result }}",
+            "${{ needs.canonical-parity.result }}",
+            "${{ needs.compatibility.result }}"
+          )
+          if ($results.Where({ $_ -ne 'success' }).Count -ne 0) {
+            throw "OPERON_CLI_HOSTED_VALIDATION_FAILED:$($results -join ',')"
+          }
