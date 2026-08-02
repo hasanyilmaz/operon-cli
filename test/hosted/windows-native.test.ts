@@ -137,9 +137,17 @@ async function testNamedPipeRoundTrip(root: string): Promise<void> {
 	const seenAuthNonces = new Set<string>();
 	let responseNonce = 0;
 	let connections = 0;
+	let resolveReadOneClose: () => void = () => undefined;
+	const readOneClosed = new Promise<void>(resolve => {
+		resolveReadOneClose = resolve;
+	});
 	const server = createServer(socket => {
 		connections += 1;
 		let pending = Buffer.alloc(0);
+		let closesAfterReadOne = false;
+		socket.on('close', () => {
+			if (closesAfterReadOne) resolveReadOneClose();
+		});
 		socket.on('data', chunk => {
 			pending = Buffer.concat([pending, Buffer.from(chunk)]);
 			while (pending.length >= 4) {
@@ -182,8 +190,10 @@ async function testNamedPipeRoundTrip(root: string): Promise<void> {
 				const frame = Buffer.alloc(4 + body.length);
 				frame.writeUInt32BE(body.length, 0);
 				body.copy(frame, 4);
-				if (message.requestId === 'read-one') socket.end(frame);
-				else socket.write(frame);
+				if (message.requestId === 'read-one') {
+					closesAfterReadOne = true;
+					socket.end(frame);
+				} else socket.write(frame);
 			}
 		});
 	});
@@ -195,7 +205,10 @@ async function testNamedPipeRoundTrip(root: string): Promise<void> {
 		for (const requestId of ['read-one', 'read-two']) {
 			const result = await transport.invoke({ requestId, command: 'health', requestToken: 'R'.repeat(32), vaultFence });
 			assert.deepEqual(JSON.parse(result.result.toString('utf8')), { ok: true, requestId });
-			if (requestId === 'read-one') await new Promise(resolve => setTimeout(resolve, 50));
+			if (requestId === 'read-one') {
+				await withTimeout(readOneClosed, 'OPERON_CLI_WINDOWS_PIPE_CLOSE_TIMEOUT');
+				await new Promise<void>(resolve => setImmediate(resolve));
+			}
 		}
 		const broker = await createWindowsBrokerClientV1({ vaultSha256: vaultFence.sha256 });
 		try {
@@ -211,6 +224,20 @@ async function testNamedPipeRoundTrip(root: string): Promise<void> {
 		if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
 		else process.env.LOCALAPPDATA = previousLocalAppData;
 		await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+	}
+}
+
+async function withTimeout(promise: Promise<void>, code: string): Promise<void> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		await Promise.race([
+			promise,
+			new Promise<never>((_resolve, reject) => {
+				timer = setTimeout(() => reject(new Error(code)), 10_000);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
 	}
 }
 
