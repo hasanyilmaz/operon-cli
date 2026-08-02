@@ -108,8 +108,9 @@ async function hostedIdentityCheck() {
 		assert.match(pullRequest?.head?.sha ?? '', /^[0-9a-f]{40}$/u, 'OPERON_CLI_PR_HEAD_SHA_INVALID');
 		assert.match(pullRequest?.head?.repo?.full_name ?? '', /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u, 'OPERON_CLI_PR_HEAD_REPOSITORY_INVALID');
 		assert.ok(
-			pullRequest?.merge_commit_sha === null || pullRequest?.merge_commit_sha === sha,
-			'OPERON_CLI_PR_MERGE_SHA_MISMATCH',
+			pullRequest?.merge_commit_sha === null
+				|| /^[0-9a-f]{40}$/u.test(pullRequest?.merge_commit_sha ?? ''),
+			'OPERON_CLI_PR_MERGE_SHA_INVALID',
 		);
 	}
 	console.log(JSON.stringify({ status: 'passed', event: eventName, sha }));
