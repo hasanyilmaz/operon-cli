@@ -24,17 +24,71 @@ test('hosted workflow guard rejects unsafe triggers, permissions, and mutable ac
 		const baseline = await readFile(workflow, 'utf8');
 		for (const [name, mutate] of [
 			['trigger.yml', value => `${value}\npull_request_target:\n`],
+			['push.yml', value => `${value}\n  push:\n    branches: [main]\n`],
+			['pull-request.yml', value => `${value}\n  pull_request:\n    branches: [main]\n`],
+			['spaced-trigger.yml', value => value.replace('  workflow_dispatch:', '  pull_request :\n  workflow_dispatch:')],
 			['permission.yml', value => value.replace('contents: read', 'contents: write')],
+			['quoted-permission.yml', value => value.replace('contents: read', 'contents: read\n  issues: "write"')],
 			['write-all.yml', value => value.replace('contents: read', 'write-all')],
 			['job-permission.yml', value => value.replace('    runs-on: ubuntu-24.04', '    permissions: { actions: write }\n    runs-on: ubuntu-24.04')],
 			['secret.yml', value => `${value}\n# \${{ secrets.NPM_TOKEN }}\n`],
 			['action.yml', value => value.replace('actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1', 'actions/checkout@v7')],
 			['extra-action.yml', value => value.replace('steps:\n', 'steps:\n      - uses: example/action@1111111111111111111111111111111111111111\n')],
+			['runner-map.yml', value => value.replace('os: windows-2025', 'os: windows-2022')],
 		]) {
 			const target = path.join(root, name);
 			await writeFile(target, mutate(baseline));
 			assertCommandFailed(['workflow-check', target]);
 		}
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('hosted identity is anchored to the repository, main dispatch, and valid run identifiers', () => {
+	const valid = {
+		GITHUB_ACTIONS: 'true',
+		GITHUB_REPOSITORY: 'hasanyilmaz/operon-cli',
+		GITHUB_SHA: 'a'.repeat(40),
+		GITHUB_RUN_ID: '123456',
+		GITHUB_RUN_ATTEMPT: '1',
+		GITHUB_EVENT_NAME: 'workflow_dispatch',
+		GITHUB_REF: 'refs/heads/main',
+		GITHUB_REF_NAME: 'main',
+	};
+	assertCommandPassed(['hosted-identity-check'], valid);
+	for (const overrides of [
+		{ GITHUB_REPOSITORY: 'hasanyilmaz/operon' },
+		{ GITHUB_EVENT_NAME: 'push' },
+		{ GITHUB_REF: 'refs/heads/feature' },
+		{ GITHUB_REF_NAME: 'feature' },
+		{ GITHUB_SHA: 'invalid' },
+		{ GITHUB_RUN_ID: '0' },
+		{ GITHUB_RUN_ATTEMPT: 'invalid' },
+	]) assertCommandFailed(['hosted-identity-check'], { ...valid, ...overrides });
+});
+
+test('candidate identity is pinned to the accepted Stage 3.6 artifact', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-candidate-baseline-'));
+	try {
+		const accepted = {
+			package: { name: '@stratejya/operon-cli', version: '1.0.8' },
+			tarball: {
+				bytes: 214_672,
+				sha256: '9b47b5fa36c004111c1d0e6c52a7de057c48ad3c5754d7b4ff1819a333e047fc',
+				sha512: 'WHe+4k+Ak4Up8QRIjJ9h3F6xnwWsdiY7+Z3gWGFK7YolZWKOyUR5xJy4YrlmrLqCBZvBI+dfTDVIyeDXLBoyvQ==',
+			},
+			inventory: Array.from({ length: 41 }, () => ({})),
+			executable: { bytes: 514_533, sha256: '5f8c2917ab55e79f9d3608e3f253bd8a2e24341b301ca386e16135bbc3a2ba6f', mode: 0o755 },
+			manifest: { bytes: 51_235, sha256: '5bc2d14a94f2edec2154d3df901291ff9895a6372ad16dac0bf0ef26ea389c6a', mode: 0o644 },
+			schemas: 'e843f87facf647617b613f3cb1d19ffd858054581a943aeab3ebff25b67db247',
+			declarations: '2d1043363a96c156086c4b974bb43d0cd151acc94663a50d5834759fa4d2b45d',
+		};
+		const identity = path.join(root, 'identity.json');
+		await writeFile(identity, JSON.stringify(accepted));
+		assertCommandPassed(['candidate-baseline-check', identity]);
+		await writeFile(identity, JSON.stringify({ ...accepted, tarball: { ...accepted.tarball, bytes: accepted.tarball.bytes + 1 } }));
+		assertCommandFailed(['candidate-baseline-check', identity]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -59,9 +113,17 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 			const directory = path.join(input, name);
 			await mkdir(directory, { recursive: true });
 			await writeFile(path.join(directory, 'operon-cli-1.0.8.tgz'), fixture.tarball);
-			await writeFile(path.join(directory, 'artifact-manifest.json'), JSON.stringify({ canonical, evidence: { runnerId: name } }));
+			await writeFile(path.join(directory, 'artifact-manifest.json'), JSON.stringify({ canonical, evidence: evidenceFor(name) }));
 		}
-		assertCommandPassed(['compare-candidates', input, output]);
+		assertCommandPassed(['compare-candidates', input, output], {
+			GITHUB_REPOSITORY: 'inherited/repository',
+			GITHUB_SHA: 'b'.repeat(40),
+			GITHUB_RUN_ID: '999',
+			GITHUB_RUN_ATTEMPT: '7',
+			GITHUB_EVENT_NAME: 'workflow_dispatch',
+			GITHUB_REF: 'refs/heads/main',
+			GITHUB_REF_NAME: 'main',
+		});
 		const tamperedTarball = path.join(input, 'canonical-windows-2025', 'operon-cli-1.0.8.tgz');
 		const tampered = Buffer.from(fixture.tarball);
 		tampered[tampered.length - 1] ^= 0xff;
@@ -69,16 +131,54 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		assertCommandFailed(['compare-candidates', input, path.join(root, 'tamper-output')]);
 		await writeFile(tamperedTarball, fixture.tarball);
 		const drifted = path.join(input, 'canonical-windows-2025', 'artifact-manifest.json');
-		await writeFile(drifted, JSON.stringify({ canonical: { ...canonical, tarball: { bytes: 4, sha256: 'def' } }, evidence: {} }));
+		await writeFile(drifted, JSON.stringify({ canonical: { ...canonical, tarball: { bytes: 4, sha256: 'def' } }, evidence: evidenceFor('canonical-windows-2025') }));
 		assertCommandFailed(['compare-candidates', input, path.join(root, 'drift-output')]);
+		await writeFile(drifted, JSON.stringify({ canonical, evidence: evidenceFor('canonical-windows-2025', { runId: 'other-run' }) }));
+		assertCommandFailed(['compare-candidates', input, path.join(root, 'cross-run-output')]);
+		const unexpected = path.join(input, 'canonical-unexpected');
+		await mkdir(unexpected, { recursive: true });
+		await writeFile(path.join(unexpected, 'operon-cli-1.0.8.tgz'), fixture.tarball);
+		await writeFile(path.join(unexpected, 'artifact-manifest.json'), JSON.stringify({ canonical, evidence: evidenceFor('canonical-ubuntu-24.04') }));
+		assertCommandFailed(['compare-candidates', input, path.join(root, 'unexpected-output')]);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
 
-function assertCommandPassed(args) {
-	const result = spawnSync(process.execPath, [helper, ...args], { cwd: projectRoot, encoding: 'utf8' });
+function assertCommandPassed(args, env = {}) {
+	const result = spawnSync(process.execPath, [helper, ...args], {
+		cwd: projectRoot,
+		encoding: 'utf8',
+		env: { ...process.env, GITHUB_ACTIONS: 'false', ...env },
+	});
 	assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+}
+
+function evidenceFor(name, githubOverrides = {}) {
+	const producer = {
+		'canonical-ubuntu-24.04': { runnerId: 'ubuntu-24.04', os: 'Linux', imageOs: 'ubuntu24', platform: 'linux' },
+		'canonical-macos-14': { runnerId: 'macos-14', os: 'macOS', imageOs: 'macos14', platform: 'darwin' },
+		'canonical-windows-2022': { runnerId: 'windows-2022', os: 'Windows', imageOs: 'win22', platform: 'win32' },
+		'canonical-windows-2025': { runnerId: 'windows-2025', os: 'Windows', imageOs: 'win25', platform: 'win32' },
+	}[name];
+	assert.ok(producer);
+	return {
+		runnerId: producer.runnerId,
+		github: {
+			repository: 'local', sha: 'local', runId: 'local', runAttempt: 'local',
+			eventName: 'local', ref: 'local', refName: 'local', ...githubOverrides,
+		},
+		runner: {
+			os: producer.os,
+			arch: 'local',
+			name: 'local',
+			imageOs: producer.imageOs,
+			imageVersion: 'local',
+			platform: producer.platform,
+			processArch: 'local',
+		},
+		toolchain: { node: 'v24.18.0', npm: '11.12.1' },
+	};
 }
 
 function createTarballFixture() {
@@ -116,7 +216,11 @@ function digest(algorithm, value, encoding) {
 	return createHash(algorithm).update(value).digest(encoding);
 }
 
-function assertCommandFailed(args) {
-	const result = spawnSync(process.execPath, [helper, ...args], { cwd: projectRoot, encoding: 'utf8' });
+function assertCommandFailed(args, env = {}) {
+	const result = spawnSync(process.execPath, [helper, ...args], {
+		cwd: projectRoot,
+		encoding: 'utf8',
+		env: { ...process.env, GITHUB_ACTIONS: 'false', ...env },
+	});
 	assert.notEqual(result.status, 0, 'Expected hosted validation command to fail closed.');
 }

@@ -9,6 +9,7 @@ import { assertOperonPackageInventoryV1, inspectPackageTarballV1 } from './packa
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NPM_VERSION = '11.12.1';
+const PRIVATE_WORKFLOW_SHA256 = '43286bc23b84e4c087fe5e3d6465700b717cbaf10c82b23c18d0e6ae7feddafa';
 const NPM_TARBALL = 'https://registry.npmjs.org/npm/-/npm-11.12.1.tgz';
 const NPM_INTEGRITY = 'sha512-zcoUuF1kezGSAo0CqtvoLXX3mkRqzuqYdL6Y5tdo8g69NVV3CkjQ6ZBhBgB4d7vGkPcV6TcvLi3GRKPDFX+xTA==';
 const LEGACY = Object.freeze({
@@ -20,6 +21,19 @@ const LEGACY = Object.freeze({
 	bytes: 213_485,
 	sha256: 'f03c360ec83663d730d76a5e53e27e4544c82f6c6f1ecfbbc0fba1538cd980a8',
 });
+const ACCEPTED_CANDIDATE = Object.freeze({
+	package: { name: '@stratejya/operon-cli', version: '1.0.8' },
+	tarball: {
+		bytes: 214_672,
+		sha256: '9b47b5fa36c004111c1d0e6c52a7de057c48ad3c5754d7b4ff1819a333e047fc',
+		sha512: 'WHe+4k+Ak4Up8QRIjJ9h3F6xnwWsdiY7+Z3gWGFK7YolZWKOyUR5xJy4YrlmrLqCBZvBI+dfTDVIyeDXLBoyvQ==',
+	},
+	inventoryEntries: 41,
+	executable: { bytes: 514_533, sha256: '5f8c2917ab55e79f9d3608e3f253bd8a2e24341b301ca386e16135bbc3a2ba6f', mode: 0o755 },
+	manifest: { bytes: 51_235, sha256: '5bc2d14a94f2edec2154d3df901291ff9895a6372ad16dac0bf0ef26ea389c6a', mode: 0o644 },
+	schemas: 'e843f87facf647617b613f3cb1d19ffd858054581a943aeab3ebff25b67db247',
+	declarations: '2d1043363a96c156086c4b974bb43d0cd151acc94663a50d5834759fa4d2b45d',
+});
 
 const [command, ...args] = process.argv.slice(2);
 switch (command) {
@@ -30,16 +44,22 @@ switch (command) {
 	case 'acquire-legacy': await acquireLegacy(required(args[0]), required(args[1])); break;
 	case 'create-candidate': await createCandidate(required(args[0]), required(args[1]), requiredText(args[2])); break;
 	case 'compare-candidates': await compareCandidates(required(args[0]), required(args[1])); break;
+	case 'candidate-baseline-check': await candidateBaselineCheck(required(args[0])); break;
+	case 'hosted-identity-check': expectedGithubIdentity(); break;
 	case 'consumer-toolchain': consumerToolchain(requiredText(args[0]), requiredText(args[1])); break;
 	default: throw new Error(`OPERON_CLI_HOSTED_COMMAND_INVALID:${command ?? ''}`);
 }
 
 async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'workflows', 'hosted-validation.yml')) {
 	const document = await readFile(workflowPath, 'utf8');
+	assert.equal(
+		createHash('sha256').update(document).digest('hex'),
+		PRIVATE_WORKFLOW_SHA256,
+		'OPERON_CLI_WORKFLOW_CANONICAL_DIGEST_MISMATCH',
+	);
 	assert.equal(document.match(/^\s*permissions\s*:/gmu)?.length, 1, 'OPERON_CLI_WORKFLOW_PERMISSION_BLOCK_MISMATCH');
 	for (const requiredText of [
 		'permissions:\n  contents: read',
-		'pull_request:',
 		'workflow_dispatch:',
 		'persist-credentials: false',
 		'fail-fast: false',
@@ -55,7 +75,7 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c',
 	]) assert.ok(document.includes(requiredText), `OPERON_CLI_WORKFLOW_REQUIRED_TEXT_MISSING:${requiredText}`);
 	for (const forbidden of [
-		'pull_request_target', 'id-token:', 'packages: write', 'contents: write',
+		'push:', 'pull_request:', 'pull_request_target', 'id-token:', 'packages: write', 'contents: write',
 		'npm publish', 'npm dist-tag', 'provenance', 'NODE_AUTH_TOKEN:', 'NPM_TOKEN:',
 		'actions/cache@', 'schedule:', 'release:', 'write-all', 'read-all', 'secrets.',
 	]) assert.equal(document.includes(forbidden), false, `OPERON_CLI_WORKFLOW_FORBIDDEN_TEXT:${forbidden}`);
@@ -153,18 +173,29 @@ async function createCandidate(npmRoot, outputRoot, runnerId) {
 		schemas: aggregate(archive.entries.filter(entry => entry.path.startsWith('package/schemas/v1/'))),
 		declarations: aggregate(archive.entries.filter(entry => entry.path.startsWith('package/types/'))),
 	};
-	const evidence = { runnerId, node: process.version, npm: NPM_VERSION, githubSha: process.env.GITHUB_SHA ?? 'local' };
+	assertAcceptedCandidate(canonical);
+	const evidence = createHostedEvidence(runnerId);
 	await writeFile(path.join(outputRoot, 'artifact-manifest.json'), `${JSON.stringify({ canonical, evidence }, null, 2)}\n`);
 	console.log(JSON.stringify({ status: 'passed', runnerId, bytes: archive.bytes, sha256: archive.sha256 }));
 }
 
 async function compareCandidates(inputRoot, outputRoot) {
+	const expectedGithub = expectedGithubIdentity();
+	const expectedProducers = new Map([
+		['canonical-ubuntu-24.04', { runnerId: 'ubuntu-24.04', runnerOs: 'Linux', imageOs: 'ubuntu24', platform: 'linux' }],
+		['canonical-macos-14', { runnerId: 'macos-14', runnerOs: 'macOS', imageOs: 'macos14', platform: 'darwin' }],
+		['canonical-windows-2022', { runnerId: 'windows-2022', runnerOs: 'Windows', imageOs: 'win22', platform: 'win32' }],
+		['canonical-windows-2025', { runnerId: 'windows-2025', runnerOs: 'Windows', imageOs: 'win25', platform: 'win32' }],
+	]);
 	const manifests = [];
 	for (const directory of await readdir(inputRoot, { withFileTypes: true })) {
 		if (!directory.isDirectory()) continue;
+		const expectedProducer = expectedProducers.get(directory.name);
+		assert.ok(expectedProducer, `OPERON_CLI_CANONICAL_PRODUCER_UNEXPECTED:${directory.name}`);
 		const root = path.join(inputRoot, directory.name);
 		try {
 			const manifest = JSON.parse(await readFile(path.join(root, 'artifact-manifest.json'), 'utf8'));
+			assertHostedEvidence(manifest?.evidence, expectedGithub, expectedProducer, directory.name);
 			const tarballPath = path.join(root, 'operon-cli-1.0.8.tgz');
 			const tarball = await readFile(tarballPath);
 			const archive = await inspectPackageTarballV1(tarballPath);
@@ -183,9 +214,15 @@ async function compareCandidates(inputRoot, outputRoot) {
 			if (error?.code !== 'ENOENT') throw error;
 		}
 	}
-	assert.equal(manifests.length, 4, 'OPERON_CLI_CANONICAL_ARTIFACT_COUNT_MISMATCH');
+	assert.equal(manifests.length, expectedProducers.size, 'OPERON_CLI_CANONICAL_ARTIFACT_COUNT_MISMATCH');
+	assert.deepEqual(
+		manifests.map(item => item.name).sort(),
+		[...expectedProducers.keys()].sort(),
+		'OPERON_CLI_CANONICAL_PRODUCER_SET_MISMATCH',
+	);
 	manifests.sort((left, right) => left.name.localeCompare(right.name, 'en'));
 	const baseline = JSON.stringify(manifests[0].manifest.canonical);
+	if (process.env.GITHUB_ACTIONS === 'true') assertAcceptedCandidate(manifests[0].manifest.canonical);
 	for (const item of manifests.slice(1)) {
 		assert.equal(JSON.stringify(item.manifest.canonical), baseline, `OPERON_CLI_CANONICAL_ARTIFACT_MISMATCH:${item.name}`);
 		assert.equal(item.tarball.equals(manifests[0].tarball), true, `OPERON_CLI_CANONICAL_TARBALL_MISMATCH:${item.name}`);
@@ -203,6 +240,96 @@ function consumerToolchain(nodeVersion, npmVersion) {
 	assert.equal(process.version, `v${nodeVersion}`, 'OPERON_CLI_CONSUMER_NODE_VERSION_MISMATCH');
 	assert.equal(runBootstrapNpm(['--version']).trim(), npmVersion, 'OPERON_CLI_CONSUMER_NPM_VERSION_MISMATCH');
 	console.log(JSON.stringify({ status: 'passed', node: nodeVersion, npm: npmVersion }));
+}
+
+function createHostedEvidence(runnerId) {
+	const github = expectedGithubIdentity();
+	const hosted = process.env.GITHUB_ACTIONS === 'true';
+	return {
+		runnerId,
+		github,
+		runner: {
+			os: hostedEnvironment('RUNNER_OS', hosted),
+			arch: hostedEnvironment('RUNNER_ARCH', hosted),
+			name: hostedEnvironment('RUNNER_NAME', hosted),
+			imageOs: hostedEnvironment('ImageOS', hosted),
+			imageVersion: hostedEnvironment('ImageVersion', hosted),
+			platform: process.platform,
+			processArch: process.arch,
+		},
+		toolchain: { node: process.version, npm: NPM_VERSION },
+	};
+}
+
+function expectedGithubIdentity() {
+	const hosted = process.env.GITHUB_ACTIONS === 'true';
+	if (!hosted) {
+		return {
+			repository: 'local', sha: 'local', runId: 'local', runAttempt: 'local',
+			eventName: 'local', ref: 'local', refName: 'local',
+		};
+	}
+	const runAttempt = hostedEnvironment('GITHUB_RUN_ATTEMPT', hosted);
+	const identity = {
+		repository: hostedEnvironment('GITHUB_REPOSITORY', hosted),
+		sha: hostedEnvironment('GITHUB_SHA', hosted),
+		runId: hostedEnvironment('GITHUB_RUN_ID', hosted),
+		runAttempt,
+		eventName: hostedEnvironment('GITHUB_EVENT_NAME', hosted),
+		ref: hostedEnvironment('GITHUB_REF', hosted),
+		refName: hostedEnvironment('GITHUB_REF_NAME', hosted),
+	};
+	if (hosted) {
+		assert.equal(identity.repository, 'hasanyilmaz/operon-cli', 'OPERON_CLI_HOSTED_REPOSITORY_MISMATCH');
+		assert.equal(identity.eventName, 'workflow_dispatch', 'OPERON_CLI_HOSTED_EVENT_MISMATCH');
+		assert.equal(identity.ref, 'refs/heads/main', 'OPERON_CLI_HOSTED_REF_MISMATCH');
+		assert.equal(identity.refName, 'main', 'OPERON_CLI_HOSTED_REF_NAME_MISMATCH');
+		assert.match(identity.sha, /^[0-9a-f]{40}$/u, 'OPERON_CLI_HOSTED_SHA_INVALID');
+		assert.match(identity.runId, /^[1-9][0-9]*$/u, 'OPERON_CLI_HOSTED_RUN_ID_INVALID');
+		assert.match(identity.runAttempt, /^[1-9][0-9]*$/u, 'OPERON_CLI_HOSTED_RUN_ATTEMPT_INVALID');
+	}
+	return identity;
+}
+
+function hostedEnvironment(name, requiredInHosted) {
+	const value = process.env[name];
+	if (!requiredInHosted) return value?.trim() || 'local';
+	assert.equal(typeof value, 'string', `OPERON_CLI_HOSTED_ENV_MISSING:${name}`);
+	assert.notEqual(value.includes('\0'), true, `OPERON_CLI_HOSTED_ENV_NUL:${name}`);
+	assert.notEqual(value.trim(), '', `OPERON_CLI_HOSTED_ENV_EMPTY:${name}`);
+	return value.trim();
+}
+
+function assertHostedEvidence(evidence, expectedGithub, expectedProducer, producerName) {
+	assert.deepEqual(evidence?.github, expectedGithub, `OPERON_CLI_CANONICAL_RUN_IDENTITY_MISMATCH:${producerName}`);
+	assert.equal(evidence?.runnerId, expectedProducer.runnerId, `OPERON_CLI_CANONICAL_RUNNER_ID_MISMATCH:${producerName}`);
+	assert.equal(evidence?.runner?.os, expectedProducer.runnerOs, `OPERON_CLI_CANONICAL_RUNNER_OS_MISMATCH:${producerName}`);
+	assert.equal(evidence?.runner?.imageOs, expectedProducer.imageOs, `OPERON_CLI_CANONICAL_RUNNER_IMAGE_MISMATCH:${producerName}`);
+	assert.equal(evidence?.runner?.platform, expectedProducer.platform, `OPERON_CLI_CANONICAL_PLATFORM_MISMATCH:${producerName}`);
+	for (const field of ['arch', 'name', 'imageVersion', 'processArch']) {
+		assert.equal(typeof evidence?.runner?.[field], 'string', `OPERON_CLI_CANONICAL_RUNNER_EVIDENCE_MISSING:${producerName}:${field}`);
+		assert.notEqual(evidence.runner[field].trim(), '', `OPERON_CLI_CANONICAL_RUNNER_EVIDENCE_EMPTY:${producerName}:${field}`);
+	}
+	assert.deepEqual(
+		evidence?.toolchain,
+		{ node: 'v24.18.0', npm: NPM_VERSION },
+		`OPERON_CLI_CANONICAL_TOOLCHAIN_MISMATCH:${producerName}`,
+	);
+}
+
+async function candidateBaselineCheck(identityPath) {
+	assertAcceptedCandidate(JSON.parse(await readFile(identityPath, 'utf8')));
+	console.log(JSON.stringify({ status: 'passed', baseline: ACCEPTED_CANDIDATE.tarball.sha256 }));
+}
+
+function assertAcceptedCandidate(canonical) {
+	assert.deepEqual(canonical?.package, ACCEPTED_CANDIDATE.package, 'OPERON_CLI_CANDIDATE_PACKAGE_BASELINE_MISMATCH');
+	assert.deepEqual(canonical?.tarball, ACCEPTED_CANDIDATE.tarball, 'OPERON_CLI_CANDIDATE_TARBALL_BASELINE_MISMATCH');
+	assert.equal(canonical?.inventory?.length, ACCEPTED_CANDIDATE.inventoryEntries, 'OPERON_CLI_CANDIDATE_INVENTORY_BASELINE_MISMATCH');
+	assert.deepEqual(canonical?.executable, ACCEPTED_CANDIDATE.executable, 'OPERON_CLI_CANDIDATE_EXECUTABLE_BASELINE_MISMATCH');
+	assert.deepEqual(canonical?.manifest, ACCEPTED_CANDIDATE.manifest, 'OPERON_CLI_CANDIDATE_MANIFEST_BASELINE_MISMATCH');
+	assert.equal(canonical?.schemas, ACCEPTED_CANDIDATE.schemas, 'OPERON_CLI_CANDIDATE_SCHEMAS_BASELINE_MISMATCH');
+	assert.equal(canonical?.declarations, ACCEPTED_CANDIDATE.declarations, 'OPERON_CLI_CANDIDATE_DECLARATIONS_BASELINE_MISMATCH');
 }
 
 function assertNoPrivateMarkers(entries) {
