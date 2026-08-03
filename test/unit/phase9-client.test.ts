@@ -21,6 +21,8 @@ import path from 'node:path';
 import test from 'node:test';
 import Ajv2020 from 'ajv/dist/2020.js';
 
+import { symlinkCapabilityUnavailableReasonV1 } from '../fixtures/symlink-capability';
+
 declare const __OPERON_PLAN_STORE_CAPACITY_WORKER_SOURCE__: string;
 
 import type {
@@ -1275,7 +1277,9 @@ test('setup discovers a custom Obsidian configuration directory by the exact Ope
 	}
 });
 
-test('Operon config discovery rejects ambiguity and intermediate symlink escapes', async () => {
+test('Operon config discovery rejects ambiguity and intermediate symlink escapes', {
+	skip: symlinkCapabilityUnavailableReasonV1(),
+}, async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-config-discovery-safety-'));
 	try {
 		const ambiguousVault = await createVault(root, 'Ambiguous Config Vault');
@@ -1309,7 +1313,9 @@ test('Operon config discovery rejects ambiguity and intermediate symlink escapes
 	}
 });
 
-test('profile resolution canonicalizes symlinks and fails closed for moved or corrupt vault state', async () => {
+test('profile resolution canonicalizes symlinks and fails closed for moved or corrupt vault state', {
+	skip: symlinkCapabilityUnavailableReasonV1(),
+}, async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-profile-safety-'));
 	try {
 		const vault = await createVault(root, 'Canonical Vault');

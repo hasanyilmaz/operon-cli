@@ -16,6 +16,8 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { symlinkCapabilityUnavailableReasonV1 } from '../fixtures/symlink-capability';
+
 import {
 	buildInvocationV1,
 	createCliClientErrorV1,
@@ -873,28 +875,33 @@ function testInteractiveShellLexingAndCompletion(): void {
 	assert.deepEqual(completeInteractiveShellLineV1('task create --profile ')[0], []);
 	assert.deepEqual(completeInteractiveShellLineV1('task get --id ')[0], []);
 	assert.deepEqual(completeInteractiveShellLineV1('ex')[0], ['exit']);
-	const completionRoot = mkdtempSync(path.join(tmpdir(), 'operon-shell-completion-'));
-	const outsideRoot = mkdtempSync(path.join(tmpdir(), 'operon-shell-completion-outside-'));
-	try {
-		writeFileSync(path.join(completionRoot, 'inside.json'), '{}');
-		writeFileSync(path.join(outsideRoot, 'private.json'), '{}');
-		symlinkSync(outsideRoot, path.join(completionRoot, 'outside'));
-		symlinkSync(path.join(completionRoot, 'inside.json'), path.join(completionRoot, 'linked.json'));
-		assert.deepEqual(
-			completeInteractiveShellLineV1('query --input in', completionRoot)[0],
-			['inside.json'],
-		);
-		assert.deepEqual(
-			completeInteractiveShellLineV1('query --input outside/', completionRoot)[0],
-			[],
-		);
-		assert.deepEqual(
-			completeInteractiveShellLineV1('query --input link', completionRoot)[0],
-			[],
-		);
-	} finally {
-		rmSync(completionRoot, { recursive: true, force: true });
-		rmSync(outsideRoot, { recursive: true, force: true });
+	const symlinkUnavailableReason = symlinkCapabilityUnavailableReasonV1();
+	if (symlinkUnavailableReason) {
+		console.log(`Skipping symbolic-link completion checks: ${symlinkUnavailableReason}`);
+	} else {
+		const completionRoot = mkdtempSync(path.join(tmpdir(), 'operon-shell-completion-'));
+		const outsideRoot = mkdtempSync(path.join(tmpdir(), 'operon-shell-completion-outside-'));
+		try {
+			writeFileSync(path.join(completionRoot, 'inside.json'), '{}');
+			writeFileSync(path.join(outsideRoot, 'private.json'), '{}');
+			symlinkSync(outsideRoot, path.join(completionRoot, 'outside'));
+			symlinkSync(path.join(completionRoot, 'inside.json'), path.join(completionRoot, 'linked.json'));
+			assert.deepEqual(
+				completeInteractiveShellLineV1('query --input in', completionRoot)[0],
+				['inside.json'],
+			);
+			assert.deepEqual(
+				completeInteractiveShellLineV1('query --input outside/', completionRoot)[0],
+				[],
+			);
+			assert.deepEqual(
+				completeInteractiveShellLineV1('query --input link', completionRoot)[0],
+				[],
+			);
+		} finally {
+			rmSync(completionRoot, { recursive: true, force: true });
+			rmSync(outsideRoot, { recursive: true, force: true });
+		}
 	}
 }
 

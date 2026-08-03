@@ -19,8 +19,10 @@ import {
 	canonicalVaultIdentityV1,
 	createCanonicalVaultFenceV1,
 } from '../../src/protocol';
+import { symlinkCapabilityUnavailableReasonV1 } from '../fixtures/symlink-capability';
 
 const CLOCK_OFFSET_TOLERANCE_MS = process.platform === 'win32' ? 20 : 2;
+const SYMLINK_CAPABILITY_UNAVAILABLE_REASON = symlinkCapabilityUnavailableReasonV1();
 
 test('session route is exact and additive', () => {
 	assert.equal(isJsonlSessionArgsV1(['session', '--jsonl']), true);
@@ -361,7 +363,9 @@ test('aborting read-group backpressure emits no response after the accepted pref
 	}
 });
 
-test('JSONL read group canonicalizes alias, profile, and implicit targets before dispatch', async () => {
+test('JSONL read group canonicalizes alias, profile, and implicit targets before dispatch', {
+	skip: SYMLINK_CAPABILITY_UNAVAILABLE_REASON,
+}, async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-session-group-target-'));
 	const configRoot = path.join(root, 'config');
 	const vault = path.join(root, 'vault');

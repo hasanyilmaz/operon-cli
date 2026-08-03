@@ -132,8 +132,13 @@ test('bootstrap npm resolves the bundled CLI without invoking a Windows command 
 		await rm(cli, { recursive: true });
 		const target = path.join(root, 'npm-cli-target.js');
 		await writeFile(target, '# fixture');
-		await symlink(target, cli);
-		assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
+		try {
+			await symlink(target, cli);
+			assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
+		} catch (error) {
+			if (error?.code !== 'EPERM') throw error;
+			console.log('Skipping symlinked npm-path check: symbolic-link creation is unavailable.');
+		}
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
