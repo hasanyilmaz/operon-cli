@@ -62,10 +62,10 @@ checks the executable, profile, storage, transport, Runtime compatibility, and
 platform security boundary. Use `operon doctor --json` when attaching
 diagnostics to a bug report.
 
-All read-only Runtime commands use the authenticated persistent transport when
-the desktop server is available: `health`, `capabilities`, `diagnostics`,
-`catalog`, `entity.resolve`, `task.get`, `tasks.query`, `tasks.finder`,
-`relationships.get`, `context.build`, and `timers.read`.
+All read-only Runtime commands are eligible for the authenticated persistent
+transport when the desktop server is available: `health`, `capabilities`,
+`diagnostics`, `catalog`, `entity.resolve`, `task.get`, `tasks.query`,
+`tasks.finder`, `relationships.get`, `context.build`, and `timers.read`.
 Mutation preview and apply remain on the one-shot path so consent and recovery
 semantics stay separate from read batching.
 
