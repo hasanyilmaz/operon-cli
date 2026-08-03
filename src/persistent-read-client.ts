@@ -22,6 +22,7 @@ import {
 	assertSecureFileV1,
 	ensureSecureDirectoryV1,
 } from './secure-storage';
+import { PERSISTENT_READ_COMMANDS_V1 } from './persistent-read-commands';
 
 const DESCRIPTOR_MAX_BYTES = 16 * 1024;
 const AUTHENTICATED_FRAME_MAX_BYTES = CONTRACT_LIMITS_V1.transportInputBytes + 16 * 1024;
@@ -30,7 +31,7 @@ const PROTOCOL_VERSION = 1;
 const HEX_64 = /^[a-f0-9]{64}$/u;
 const UNIX_SOCKET_BASENAME = /^read-[a-f0-9]{48}\.sock$/u;
 const WINDOWS_PIPE = /^\\\\\.\\pipe\\operon-[a-f0-9]{64}$/u;
-const READ_COMMANDS = new Set(['health', 'task.get', 'tasks.query', 'context.build']);
+const READ_COMMANDS = new Set<string>(PERSISTENT_READ_COMMANDS_V1);
 
 interface PersistentDescriptorV1 {
 	protocolVersion: 1;

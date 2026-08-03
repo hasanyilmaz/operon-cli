@@ -904,7 +904,7 @@ test('persistent read client handshakes, preserves request identity, and rejects
 			}),
 			client.invoke({
 				requestId: 'batch-query',
-				command: 'tasks.query',
+				command: 'capabilities',
 				requestToken: 'D'.repeat(32),
 				vaultFence,
 			}),

@@ -1864,11 +1864,22 @@ async function testOneShotExecutionAndCleanup(): Promise<void> {
 }
 
 async function testOneShotPersistentReadRouting(): Promise<void> {
-	assert.equal(isPersistentReadCommandV1('health'), true);
-	assert.equal(isPersistentReadCommandV1('task.get'), true);
-	assert.equal(isPersistentReadCommandV1('tasks.query'), true);
-	assert.equal(isPersistentReadCommandV1('context.build'), true);
-	assert.equal(isPersistentReadCommandV1('capabilities'), false);
+	for (const command of [
+		'health',
+		'capabilities',
+		'diagnostics',
+		'catalog',
+		'entity.resolve',
+		'task.get',
+		'tasks.query',
+		'tasks.finder',
+		'relationships.get',
+		'context.build',
+		'timers.read',
+	] as const) {
+		assert.equal(isPersistentReadCommandV1(command), true, `${command} must use persistent read transport`);
+	}
+	assert.equal(isPersistentReadCommandV1('mutation.preview'), false);
 	assert.equal(isPersistentReadCommandV1('mutation.apply'), false);
 
 	const vault = mkdtempSync(path.join(tmpdir(), 'operon-cli-persistent-routing-vault-'));
