@@ -83,6 +83,7 @@ import {
 	PersistentReadTransportErrorV1,
 	type PersistentReadTransportV1,
 } from '../../src/persistent-read-client';
+import { PERSISTENT_READ_COMMANDS_V1 } from '../../src/persistent-read-commands';
 import {
 	resolveObsidianExecutableV1,
 } from '../../src/process-platform';
@@ -1864,7 +1865,7 @@ async function testOneShotExecutionAndCleanup(): Promise<void> {
 }
 
 async function testOneShotPersistentReadRouting(): Promise<void> {
-	for (const command of [
+	const expectedPersistentReadCommands = [
 		'health',
 		'capabilities',
 		'diagnostics',
@@ -1876,7 +1877,9 @@ async function testOneShotPersistentReadRouting(): Promise<void> {
 		'relationships.get',
 		'context.build',
 		'timers.read',
-	] as const) {
+	] as const;
+	assert.deepEqual(PERSISTENT_READ_COMMANDS_V1, expectedPersistentReadCommands);
+	for (const command of expectedPersistentReadCommands) {
 		assert.equal(isPersistentReadCommandV1(command), true, `${command} must use persistent read transport`);
 	}
 	assert.equal(isPersistentReadCommandV1('mutation.preview'), false);
@@ -1952,32 +1955,16 @@ async function testOneShotPersistentReadRouting(): Promise<void> {
 				factoryCalls += 1;
 				return transport;
 			},
-			runProcess: async (_executable, args) => {
+			runProcess: async () => {
 				processCalls += 1;
-				const token = args.find(value => value.startsWith('requestToken='))
-					?.slice('requestToken='.length);
-				assert.ok(token);
-				const requestPath = requestPathForTokenV1(token, requestRoot);
-				const request = JSON.parse(readFileSync(requestPath, 'utf8')) as CliInvocationV1;
-				return {
-					exitCode: 0,
-					signal: null,
-					stdout: Buffer.from(JSON.stringify(capabilitiesSuccessEnvelope(
-						request,
-						lstatSync(requestPath).size,
-					))),
-					stderr: Buffer.alloc(0),
-					totalMs: 1,
-					timedOut: false,
-					overflow: false,
-				};
+				throw new Error('eligible read must use the persistent transport first');
 			},
 		});
-		assert.equal(capabilities.exitCode, 0, capabilities.human);
-		assert.equal(factoryCalls, 1);
-		assert.equal(persistentCalls, 1);
-		assert.equal(processCalls, 1);
-		assert.equal(closeCalls, 1);
+		assert.equal(capabilities.exitCode, 3, capabilities.human);
+		assert.equal(factoryCalls, 2);
+		assert.equal(persistentCalls, 2);
+		assert.equal(processCalls, 0);
+		assert.equal(closeCalls, 2);
 
 		const doctor = await runPublicCommandLineV1([
 			'doctor',
