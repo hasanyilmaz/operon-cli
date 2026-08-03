@@ -1277,9 +1277,7 @@ test('setup discovers a custom Obsidian configuration directory by the exact Ope
 	}
 });
 
-test('Operon config discovery rejects ambiguity and intermediate symlink escapes', {
-	skip: symlinkCapabilityUnavailableReasonV1(),
-}, async () => {
+test('Operon config discovery rejects ambiguity', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-config-discovery-safety-'));
 	try {
 		const ambiguousVault = await createVault(root, 'Ambiguous Config Vault');
@@ -1293,7 +1291,16 @@ test('Operon config discovery rejects ambiguity and intermediate symlink escapes
 			() => validateOperonManifestV1(ambiguousVault),
 			/OPERON_CONFIG_DIRECTORY_AMBIGUOUS/u,
 		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
+test('Operon config discovery rejects intermediate symlink escapes', {
+	skip: symlinkCapabilityUnavailableReasonV1(),
+}, async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-config-symlink-safety-'));
+	try {
 		const escapedVault = path.join(root, 'Escaped Config Vault');
 		const externalPlugins = path.join(root, 'external-plugins');
 		await mkdir(path.join(escapedVault, '.custom-config'), { recursive: true });
@@ -1313,19 +1320,32 @@ test('Operon config discovery rejects ambiguity and intermediate symlink escapes
 	}
 });
 
-test('profile resolution canonicalizes symlinks and fails closed for moved or corrupt vault state', {
+test('profile resolution canonicalizes symlinks', {
 	skip: symlinkCapabilityUnavailableReasonV1(),
 }, async () => {
-	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-profile-safety-'));
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-profile-symlink-safety-'));
 	try {
 		const vault = await createVault(root, 'Canonical Vault');
 		const alias = path.join(root, 'Vault Alias');
 		await symlink(vault, alias);
-		let config = upsertVaultProfileV1(
+		const config = upsertVaultProfileV1(
 			{ version: 1, profiles: [] },
 			{ name: 'canonical', vaultPath: alias },
 		);
 		assert.equal(config.profiles[0].canonicalPath, vault);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('profile resolution fails closed for moved or corrupt vault state', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-profile-state-safety-'));
+	try {
+		const vault = await createVault(root, 'Canonical Vault');
+		let config = upsertVaultProfileV1(
+			{ version: 1, profiles: [] },
+			{ name: 'canonical', vaultPath: vault },
+		);
 		const configRoot = path.join(root, 'config');
 		saveOperonCliConfigV1(config, configRoot);
 		await rm(vault, { recursive: true, force: true });

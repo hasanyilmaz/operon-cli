@@ -114,8 +114,8 @@ test('public validation identity accepts an exact pull request merge ref and rej
 			await symlink(eventPath, symlinkPath);
 			assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: symlinkPath });
 		} catch (error) {
-			if (error?.code !== 'EPERM') throw error;
-			console.log('Skipping symlinked event-path check: symbolic-link creation is unavailable.');
+			if (!['EPERM', 'EACCES', 'ENOSYS'].includes(error?.code)) throw error;
+			console.log(`Skipping symlinked event-path check: symbolic-link creation is unavailable (${error.code}).`);
 		}
 
 		const driftedEventPath = path.join(root, 'pull-request-drift.json');

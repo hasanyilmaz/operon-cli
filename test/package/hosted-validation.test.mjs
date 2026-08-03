@@ -136,8 +136,8 @@ test('bootstrap npm resolves the bundled CLI without invoking a Windows command 
 			await symlink(target, cli);
 			assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
 		} catch (error) {
-			if (error?.code !== 'EPERM') throw error;
-			console.log('Skipping symlinked npm-path check: symbolic-link creation is unavailable.');
+			if (!['EPERM', 'EACCES', 'ENOSYS'].includes(error?.code)) throw error;
+			console.log(`Skipping symlinked npm-path check: symbolic-link creation is unavailable (${error.code}).`);
 		}
 	} finally {
 		await rm(root, { recursive: true, force: true });
