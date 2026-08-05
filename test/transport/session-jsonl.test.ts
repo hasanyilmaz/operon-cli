@@ -19,6 +19,7 @@ import {
 	canonicalVaultIdentityV1,
 	createCanonicalVaultFenceV1,
 } from '../../src/protocol';
+import { symlinkCapabilityUnavailableReasonV1 } from '../fixtures/symlink-capability';
 
 const CLOCK_OFFSET_TOLERANCE_MS = process.platform === 'win32' ? 20 : 2;
 
@@ -361,13 +362,18 @@ test('aborting read-group backpressure emits no response after the accepted pref
 	}
 });
 
-test('JSONL read group canonicalizes alias, profile, and implicit targets before dispatch', async () => {
+test('JSONL read group canonicalizes alias, profile, and implicit targets before dispatch', async t => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-session-group-target-'));
 	const configRoot = path.join(root, 'config');
 	const vault = path.join(root, 'vault');
 	const alias = path.join(root, 'vault-alias');
 	mkdirSync(vault, { recursive: true, mode: 0o700 });
-	symlinkSync(vault, alias);
+	const directorySymlinkUnavailableReason = symlinkCapabilityUnavailableReasonV1('dir');
+	const canCreateDirectorySymlink = directorySymlinkUnavailableReason === undefined;
+	if (directorySymlinkUnavailableReason) {
+		t.diagnostic(`${directorySymlinkUnavailableReason} Alias child assertion skipped.`);
+	}
+	if (canCreateDirectorySymlink) symlinkSync(vault, alias, 'dir');
 	const identity = canonicalVaultIdentityV1(vault);
 	saveOperonCliConfigV1({
 		version: 1,
@@ -387,7 +393,9 @@ test('JSONL read group canonicalizes alias, profile, and implicit targets before
 			input: Readable.from([`${JSON.stringify({
 				id: 'canonical',
 				reads: [
-					{ id: 'alias', argv: ['health', '--vault', alias] },
+					...(canCreateDirectorySymlink
+						? [{ id: 'alias', argv: ['health', '--vault', alias] }]
+						: []),
 					{ id: 'profile', argv: ['task', 'get', '--profile', 'same', '--input', '-'], input: { operonId: 'x' } },
 					{ id: 'implicit', argv: ['context', '--input', '-'], input: { kind: 'task-query' } },
 				],
@@ -409,7 +417,7 @@ test('JSONL read group canonicalizes alias, profile, and implicit targets before
 			},
 		});
 		assert.equal(exitCode, 0);
-		assert.equal(argvs.length, 3);
+		assert.equal(argvs.length, canCreateDirectorySymlink ? 3 : 2);
 		assert.ok(argvs.every(argv => (
 			argv.includes('--vault')
 			&& argv[argv.indexOf('--vault') + 1] === identity.canonicalPath

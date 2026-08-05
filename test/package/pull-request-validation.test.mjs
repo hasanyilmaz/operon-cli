@@ -69,7 +69,7 @@ test('public validation identity accepts an exact main push', async () => {
 	}
 });
 
-test('public validation identity accepts an exact pull request merge ref and rejects event drift', async () => {
+test('public validation identity accepts an exact pull request merge ref and rejects event drift', async t => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-event-'));
 	try {
 		const sha = 'b'.repeat(40);
@@ -110,8 +110,18 @@ test('public validation identity accepts an exact pull request merge ref and rej
 		]) assertCommandFailed(['hosted-identity-check'], { ...valid, ...overrides });
 
 		const symlinkPath = path.join(root, 'event-link.json');
-		await symlink(eventPath, symlinkPath);
-		assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: symlinkPath });
+		let symlinkCreated = true;
+		try {
+			await symlink(eventPath, symlinkPath);
+		} catch (error) {
+			const unavailableReason = windowsSymlinkCapabilityUnavailableReason(error);
+			if (!unavailableReason) throw error;
+			t.diagnostic(`${unavailableReason} Event-path symlink assertion skipped.`);
+			symlinkCreated = false;
+		}
+		if (symlinkCreated) {
+			assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: symlinkPath });
+		}
 
 		const driftedEventPath = path.join(root, 'pull-request-drift.json');
 		await writeFile(driftedEventPath, JSON.stringify({
@@ -138,6 +148,13 @@ test('public validation identity accepts an exact pull request merge ref and rej
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+function windowsSymlinkCapabilityUnavailableReason(error) {
+	if (process.platform !== 'win32' || !['EACCES', 'ENOSYS', 'EPERM'].includes(error?.code)) {
+		return undefined;
+	}
+	return `Windows file symlink capability is unavailable (${error.code}).`;
+}
 
 function hostedEnvironment(overrides) {
 	return {

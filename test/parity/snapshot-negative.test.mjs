@@ -74,7 +74,10 @@ test('snapshot symlink is rejected', async t => {
 		try {
 			await symlink(linkTarget, target);
 		} catch (error) {
-			if (error?.code === 'EPERM') return t.skip('Symlink creation is unavailable.');
+			const unavailableReason = windowsSymlinkCapabilityUnavailableReason(error);
+			if (unavailableReason) {
+				return t.skip(unavailableReason);
+			}
 			throw error;
 		}
 		assert.notEqual(runCheck(root).status, 0);
@@ -82,6 +85,13 @@ test('snapshot symlink is rejected', async t => {
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+function windowsSymlinkCapabilityUnavailableReason(error) {
+	if (process.platform !== 'win32' || !['EACCES', 'ENOSYS', 'EPERM'].includes(error?.code)) {
+		return undefined;
+	}
+	return `Windows file symlink capability is unavailable (${error.code}).`;
+}
 
 async function createFixture() {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-snapshot-negative-'));

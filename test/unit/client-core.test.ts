@@ -16,6 +16,8 @@ import {
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { symlinkCapabilityUnavailableReasonV1 } from '../fixtures/symlink-capability';
+
 import {
 	buildInvocationV1,
 	createCliClientErrorV1,
@@ -878,20 +880,42 @@ function testInteractiveShellLexingAndCompletion(): void {
 	try {
 		writeFileSync(path.join(completionRoot, 'inside.json'), '{}');
 		writeFileSync(path.join(outsideRoot, 'private.json'), '{}');
-		symlinkSync(outsideRoot, path.join(completionRoot, 'outside'));
-		symlinkSync(path.join(completionRoot, 'inside.json'), path.join(completionRoot, 'linked.json'));
+		const directorySymlinkUnavailableReason = symlinkCapabilityUnavailableReasonV1('dir');
+		const fileSymlinkUnavailableReason = symlinkCapabilityUnavailableReasonV1('file');
+		const canCreateDirectorySymlink = directorySymlinkUnavailableReason === undefined;
+		const canCreateFileSymlink = fileSymlinkUnavailableReason === undefined;
+		if (directorySymlinkUnavailableReason) {
+			console.log(`${directorySymlinkUnavailableReason} Directory-link completion assertion skipped.`);
+		}
+		if (fileSymlinkUnavailableReason) {
+			console.log(`${fileSymlinkUnavailableReason} File-link completion assertion skipped.`);
+		}
+		if (canCreateDirectorySymlink) {
+			symlinkSync(outsideRoot, path.join(completionRoot, 'outside'), 'dir');
+		}
+		if (canCreateFileSymlink) {
+			symlinkSync(
+				path.join(completionRoot, 'inside.json'),
+				path.join(completionRoot, 'linked.json'),
+				'file',
+			);
+		}
 		assert.deepEqual(
 			completeInteractiveShellLineV1('query --input in', completionRoot)[0],
 			['inside.json'],
 		);
-		assert.deepEqual(
-			completeInteractiveShellLineV1('query --input outside/', completionRoot)[0],
-			[],
-		);
-		assert.deepEqual(
-			completeInteractiveShellLineV1('query --input link', completionRoot)[0],
-			[],
-		);
+		if (canCreateDirectorySymlink) {
+			assert.deepEqual(
+				completeInteractiveShellLineV1('query --input outside/', completionRoot)[0],
+				[],
+			);
+		}
+		if (canCreateFileSymlink) {
+			assert.deepEqual(
+				completeInteractiveShellLineV1('query --input link', completionRoot)[0],
+				[],
+			);
+		}
 	} finally {
 		rmSync(completionRoot, { recursive: true, force: true });
 		rmSync(outsideRoot, { recursive: true, force: true });
