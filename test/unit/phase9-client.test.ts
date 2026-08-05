@@ -1432,6 +1432,97 @@ test('diagnostics invocation matches the shared strict V1 decoder', async () => 
 	}
 });
 
+test('configured-default file creation seals the Runtime-resolved template without weakening template invariants', () => {
+	const assertRejected = (
+		label: string,
+		mutate: (plan: SealedMutationPlanV1) => void,
+	): void => {
+		const plan = fakeConfiguredDefaultCreatePlan();
+		mutate(plan);
+		resealPlan(plan);
+		const decoded = decodeSealedMutationPlanV1(plan);
+		assert.equal(decoded.ok, false, label);
+	};
+	const assertAccepted = (
+		label: string,
+		mutate: (plan: SealedMutationPlanV1) => void,
+	): void => {
+		const plan = fakeConfiguredDefaultCreatePlan();
+		mutate(plan);
+		resealPlan(plan);
+		const decoded = decodeSealedMutationPlanV1(plan);
+		assert.equal(decoded.ok, true, decoded.ok ? label : `${label}: ${JSON.stringify(decoded.issues)}`);
+	};
+
+	assertRejected('an explicit requested template must match the sealed template', plan => {
+		if (plan.spec.operation !== 'create' || !plan.createEffects?.[0]) {
+			throw new Error('Expected a configured-default create plan.');
+		}
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'configured-default',
+			templateId: 'template-requested',
+		};
+		plan.createEffects[0].templateId = 'template-runtime-default';
+	});
+	assertAccepted('an explicit requested template accepts matching sealed evidence', plan => {
+		if (plan.spec.operation !== 'create') throw new Error('Expected a configured-default create plan.');
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'configured-default',
+			templateId: 'template-runtime-default',
+		};
+	});
+	assertRejected('an explicit requested template requires sealed template evidence', plan => {
+		if (plan.spec.operation !== 'create' || !plan.createEffects?.[0]) {
+			throw new Error('Expected a configured-default create plan.');
+		}
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'configured-default',
+			templateId: 'template-runtime-default',
+		};
+		delete plan.createEffects[0].templateId;
+		delete plan.createEffects[0].templateDigest;
+	});
+	assertAccepted('configured-default accepts omitted request and effect template evidence', plan => {
+		if (!plan.createEffects?.[0]) throw new Error('Expected a configured-default create effect.');
+		delete plan.createEffects[0].templateId;
+		delete plan.createEffects[0].templateDigest;
+	});
+	for (const missing of ['templateId', 'templateDigest'] as const) {
+		assertRejected(`sealed template evidence rejects missing ${missing}`, plan => {
+			if (!plan.createEffects?.[0]) throw new Error('Expected a configured-default create effect.');
+			delete plan.createEffects[0][missing];
+		});
+	}
+	assertRejected('inline creation cannot seal a file template', plan => {
+		if (plan.spec.operation !== 'create' || !plan.createEffects?.[0]) {
+			throw new Error('Expected a configured-default create plan.');
+		}
+		const locator = {
+			representation: 'inline' as const,
+			filePath: 'Tasks.md',
+			lineNumber: 0,
+		};
+		plan.spec.items[0].target = { representation: 'inline', mode: 'configured-default' };
+		plan.createEffects[0].locator = locator;
+		plan.targets[0].locator = locator;
+	});
+	assertRejected('an exact-path request cannot gain an unsolicited sealed template', plan => {
+		if (plan.spec.operation !== 'create') throw new Error('Expected a configured-default create plan.');
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'exact-path',
+			filePath: 'Tasks/Configured Default.md',
+		};
+	});
+
+	const configuredDefault = fakeConfiguredDefaultCreatePlan();
+	const decoded = decodeSealedMutationPlanV1(configuredDefault);
+	assert.equal(decoded.ok, true, decoded.ok ? undefined : JSON.stringify(decoded.issues));
+});
+
 test('legacy client identity migrates once and missing initialized identity fails closed', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-identity-'));
 	try {
@@ -2608,6 +2699,91 @@ function fakePlan(
 	plan.planHash = computeSealedMutationPlanHashV1(plan);
 	const decoded = decodeSealedMutationPlanV1(plan);
 	assert.equal(decoded.ok, true, decoded.ok ? undefined : JSON.stringify(decoded.issues));
+	return plan;
+}
+
+function fakeConfiguredDefaultCreatePlan(): SealedMutationPlanV1 {
+	const locator = {
+		representation: 'file' as const,
+		filePath: 'Tasks/Configured Default.md',
+	};
+	const plan: SealedMutationPlanV1 = {
+		contractVersion: 1,
+		planId: 'phase9-configured-default-create',
+		planHash: '',
+		clientInstanceId: 'operon-cli-phase9',
+		correlationId: 'phase9-configured-default-correlation',
+		idempotencyKeyHash: '4'.repeat(64),
+		receiptTargetDigest: '',
+		capability: 'tasks.create.preview',
+		mutationKind: 'task.create',
+		createdAt: '2026-08-05T08:00:00.000Z',
+		expiresAt: '2026-08-05T08:01:00.000Z',
+		targets: [{
+			operonId: 'abc1234',
+			locator,
+			targetDigest: '7'.repeat(64),
+		}],
+		contextRevision: {
+			index: {
+				sessionId: 'phase9-configured-default',
+				ramGeneration: 1,
+				durable: { status: 'missing' },
+			},
+			settingsFingerprint: '5'.repeat(64),
+			pinnedGeneration: 0,
+			activeTrackerGeneration: 0,
+			repeatSeriesRevision: 0,
+			projectSerialGeneration: 0,
+			projectSerialSignature: '6'.repeat(64),
+		},
+		affectedResources: [{
+			resourceKind: 'task-source',
+			resourceKey: locator.filePath,
+			revision: 'absent',
+		}],
+		atomicGroups: [{
+			groupId: `task-source:${locator.filePath}`,
+			order: 0,
+			resources: [{ resourceKind: 'task-source', resourceKey: locator.filePath }],
+		}],
+		predictedEffects: [{
+			resourceKind: 'task-source',
+			resourceKey: locator.filePath,
+			action: 'create',
+			summary: 'Create one File Task from the configured default.',
+		}],
+		riskLevel: 'routine',
+		requiresConfirmation: false,
+		requiredAcknowledgements: [],
+		warnings: [],
+		spec: {
+			operation: 'create',
+			items: [{
+				itemRef: 'configured-default',
+				description: 'Configured default task',
+				target: { representation: 'file', mode: 'configured-default' },
+				fields: [],
+			}],
+		},
+		createEffects: [{
+			itemRef: 'configured-default',
+			operonId: 'abc1234',
+			locator,
+			expectedAbsence: true,
+			renderedTaskDigest: '8'.repeat(64),
+			plannedSourceDigest: '9'.repeat(64),
+			templateId: 'template-runtime-default',
+			templateDigest: 'a'.repeat(64),
+			resolvedRelatedOperonIds: [],
+		}],
+	};
+	return resealPlan(plan);
+}
+
+function resealPlan(plan: SealedMutationPlanV1): SealedMutationPlanV1 {
+	plan.receiptTargetDigest = computeReceiptTargetDigestV1(plan.targets);
+	plan.planHash = computeSealedMutationPlanHashV1(plan);
 	return plan;
 }
 
