@@ -81,7 +81,15 @@ jobs:
       - run: node scripts/hosted-validation.mjs install-script-check
       - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" ci --include=dev --no-audit --no-fund
       - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" cache verify
-      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" test
+      - name: Validate frozen main release identity
+        if: github.event_name == 'push'
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" test
+      - name: Validate pull request source
+        if: github.event_name == 'pull_request'
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run prepack
+      - name: Validate pull request package candidate
+        if: github.event_name == 'pull_request'
+        run: node scripts/pull-request-validation.mjs candidate-test "${{ runner.temp }}/operon-npm" "${{ runner.temp }}/operon-pr-candidate"
       - name: Native Windows evidence
         if: runner.os == 'Windows'
         run: node scripts/run-typescript-tests.mjs test/hosted

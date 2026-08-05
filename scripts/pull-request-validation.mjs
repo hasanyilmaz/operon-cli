@@ -1,16 +1,23 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { lstat, readFile } from 'node:fs/promises';
+import { lstat, mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createChildEnvironmentWithPathV1 } from './child-process-environment.mjs';
+import {
+	assertOperonPackageInventoryV1,
+	normalizeOperonPackageTarballV1,
+} from './package-archive.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PUBLIC_WORKFLOW_SHA256 = 'f326836c457a872bed50acd6fe29cd4470633566742e14d9ad9826c69b3def91';
+const PUBLIC_WORKFLOW_SHA256 = 'a292c068cf63e84bae6e3bd6f1e36645f4800f68ec5c7d3c53705658a45b1948';
 
 const [command, ...args] = process.argv.slice(2);
 switch (command) {
 	case 'workflow-check': await workflowCheck(args[0]); break;
 	case 'hosted-identity-check': await hostedIdentityCheck(); break;
+	case 'candidate-test': await candidateTest(requiredPath(args[0]), requiredPath(args[1])); break;
 	default: throw new Error(`OPERON_CLI_PR_COMMAND_INVALID:${command ?? ''}`);
 }
 
@@ -38,6 +45,9 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'node scripts/pull-request-validation.mjs hosted-identity-check',
 		'node scripts/hosted-validation.mjs install-script-check',
 		'node scripts/hosted-validation.mjs run-npm',
+		'node scripts/pull-request-validation.mjs candidate-test',
+		"github.event_name == 'pull_request'",
+		"github.event_name == 'push'",
 		'node scripts/run-typescript-tests.mjs test/hosted',
 		'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
 		'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
@@ -116,10 +126,86 @@ async function hostedIdentityCheck() {
 	console.log(JSON.stringify({ status: 'passed', event: eventName, sha }));
 }
 
+async function candidateTest(npmRoot, outputRoot) {
+	const npmCli = path.join(npmRoot, 'package', 'bin', 'npm-cli.js');
+	const npmStat = await lstat(npmCli);
+	assert.equal(npmStat.isFile(), true, 'OPERON_CLI_PR_NPM_CLI_INVALID');
+	assert.equal(npmStat.isSymbolicLink(), false, 'OPERON_CLI_PR_NPM_CLI_INVALID');
+	await mkdir(outputRoot, { recursive: false });
+	const candidateRoot = path.join(outputRoot, 'candidate');
+	const legacyRoot = path.join(outputRoot, 'legacy');
+	await mkdir(candidateRoot);
+	const packed = runNpmJson(npmRoot, [
+		'pack', '--json', '--ignore-scripts', '--pack-destination', candidateRoot,
+	], projectRoot)[0];
+	assert.equal(packed?.name, '@stratejya/operon-cli', 'OPERON_CLI_PR_CANDIDATE_NAME_MISMATCH');
+	assert.equal(packed?.version, '1.0.8', 'OPERON_CLI_PR_CANDIDATE_VERSION_MISMATCH');
+	const source = path.join(candidateRoot, packed.filename);
+	const candidate = path.join(candidateRoot, 'operon-cli-1.0.8.tgz');
+	if (source !== candidate) await rename(source, candidate);
+	const archive = await normalizeOperonPackageTarballV1(candidate);
+	assertOperonPackageInventoryV1(archive.entries);
+	const canonical = {
+		package: { name: packed.name, version: packed.version },
+		tarball: { bytes: archive.bytes, sha256: archive.sha256, sha512: archive.sha512 },
+		inventory: archive.entries.map(({ path: entryPath, mode, size, sha256 }) => ({
+			path: entryPath, mode, size, sha256,
+		})),
+	};
+	const manifest = path.join(candidateRoot, 'artifact-manifest.json');
+	await writeFile(manifest, `${JSON.stringify({ canonical }, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
+	runNode([
+		path.join(projectRoot, 'scripts', 'hosted-validation.mjs'),
+		'acquire-legacy', npmRoot, legacyRoot,
+	]);
+	const legacy = path.join(legacyRoot, 'operon-cli-1.0.7.tgz');
+	runNpm(npmRoot, ['run', 'package:test'], {
+		OPERON_CLI_CANDIDATE_TARBALL: candidate,
+		OPERON_CLI_CANDIDATE_MANIFEST: manifest,
+		OPERON_CLI_LEGACY_TARBALL: legacy,
+	});
+	console.log(JSON.stringify({
+		status: 'passed',
+		bytes: archive.bytes,
+		sha256: archive.sha256,
+		inventory: archive.entries.length,
+	}));
+}
+
+function runNpmJson(npmRoot, npmArgs, cwd) {
+	return JSON.parse(runNpm(npmRoot, npmArgs, {}, cwd, true));
+}
+
+function runNpm(npmRoot, npmArgs, environment = {}, cwd = projectRoot, capture = false) {
+	return runNode([path.join(npmRoot, 'package', 'bin', 'npm-cli.js'), ...npmArgs], environment, cwd, capture);
+}
+
+function runNode(args, environment = {}, cwd = projectRoot, capture = false) {
+	const inheritedPath = Object.entries(process.env)
+		.find(([key]) => key.toLocaleLowerCase('en-US') === 'path')?.[1] ?? '';
+	const result = spawnSync(process.execPath, args, {
+		cwd,
+		encoding: 'utf8',
+		stdio: capture ? ['ignore', 'pipe', 'pipe'] : 'inherit',
+		env: createChildEnvironmentWithPathV1({ ...process.env, ...environment }, inheritedPath),
+	});
+	if (result.error || result.status !== 0) {
+		throw new Error(`OPERON_CLI_PR_COMMAND_FAILED:${result.status}\n${result.stdout ?? ''}\n${result.stderr ?? ''}`, {
+			cause: result.error,
+		});
+	}
+	return result.stdout ?? '';
+}
+
 function hostedEnvironment(name) {
 	const value = process.env[name];
 	assert.equal(typeof value, 'string', `OPERON_CLI_PR_ENV_MISSING:${name}`);
 	assert.equal(value.includes('\0'), false, `OPERON_CLI_PR_ENV_NUL:${name}`);
 	assert.notEqual(value.trim(), '', `OPERON_CLI_PR_ENV_EMPTY:${name}`);
 	return value.trim();
+}
+
+function requiredPath(value) {
+	assert.ok(value, 'OPERON_CLI_PR_ARGUMENT_REQUIRED');
+	return path.resolve(value);
 }
