@@ -30,7 +30,19 @@ const PROTOCOL_VERSION = 1;
 const HEX_64 = /^[a-f0-9]{64}$/u;
 const UNIX_SOCKET_BASENAME = /^read-[a-f0-9]{48}\.sock$/u;
 const WINDOWS_PIPE = /^\\\\\.\\pipe\\operon-[a-f0-9]{64}$/u;
-const READ_COMMANDS = new Set(['health', 'task.get', 'tasks.query', 'context.build']);
+const READ_COMMANDS = new Set([
+	'health',
+	'capabilities',
+	'diagnostics',
+	'catalog',
+	'entity.resolve',
+	'task.get',
+	'tasks.query',
+	'tasks.finder',
+	'relationships.get',
+	'context.build',
+	'timers.read',
+]);
 
 interface PersistentDescriptorV1 {
 	protocolVersion: 1;
