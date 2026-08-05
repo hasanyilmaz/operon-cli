@@ -7,6 +7,10 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const ASYNC_TEST_PROMISE_GLOBALS = new Map([
+	['client-core.test.ts', '__operonAgentRuntimeCliTestRun'],
+	['guided-maintenance-command.test.ts', '__operonGuidedMaintenanceCommandTestRun'],
+]);
 const directories = process.argv.slice(2);
 if (directories.length === 0) throw new Error('No test directories provided.');
 const testFiles = [];
@@ -20,6 +24,7 @@ try {
 	for (let index = 0; index < testFiles.length; index += 1) {
 		const testFile = testFiles[index];
 		const outfile = path.join(temporaryRoot, `${index}.mjs`);
+		const asyncTestPromiseGlobal = ASYNC_TEST_PROMISE_GLOBALS.get(path.basename(testFile));
 		const define = {
 			__OPERON_CLI_PACKAGE_NAME__: JSON.stringify('@stratejya/operon-cli'),
 			__OPERON_CLI_VERSION__: JSON.stringify('1.0.8'),
@@ -48,10 +53,10 @@ try {
 			format: 'esm',
 			target: 'node22',
 			define,
-			...(path.basename(testFile) === 'client-core.test.ts'
+			...(asyncTestPromiseGlobal
 				? {
 					footer: {
-						js: 'await globalThis.__operonAgentRuntimeCliTestRun; delete globalThis.__operonAgentRuntimeCliTestRun;',
+						js: `await globalThis.${asyncTestPromiseGlobal}; delete globalThis.${asyncTestPromiseGlobal};`,
 					},
 				}
 				: {}),
