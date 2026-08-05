@@ -83,7 +83,7 @@ import {
 } from '../../src/protocol';
 import {
 	PersistentReadTransportErrorV1,
-	type PersistentReadTransportV1,
+	PersistentReadTransportV1,
 } from '../../src/persistent-read-client';
 import {
 	resolveObsidianExecutableV1,
@@ -1888,13 +1888,19 @@ async function testOneShotExecutionAndCleanup(): Promise<void> {
 }
 
 async function testOneShotPersistentReadRouting(): Promise<void> {
-	assert.equal(isPersistentReadCommandV1('health'), true);
-	assert.equal(isPersistentReadCommandV1('task.get'), true);
-	assert.equal(isPersistentReadCommandV1('tasks.query'), true);
-	assert.equal(isPersistentReadCommandV1('context.build'), true);
-	assert.equal(isPersistentReadCommandV1('capabilities'), false);
-	assert.equal(isPersistentReadCommandV1('mutation.apply'), false);
-
+	const persistentReadCommands = [
+		'health',
+		'capabilities',
+		'diagnostics',
+		'catalog',
+		'entity.resolve',
+		'task.get',
+		'tasks.query',
+		'tasks.finder',
+		'relationships.get',
+		'timers.read',
+		'context.build',
+	] as const;
 	const vault = mkdtempSync(path.join(tmpdir(), 'operon-cli-persistent-routing-vault-'));
 	const requestRoot = path.join(tmpdir(), `operon-cli-persistent-routing-${Date.now()}`);
 	const configRoot = path.join(tmpdir(), `operon-cli-persistent-config-${Date.now()}`);
@@ -1903,6 +1909,43 @@ async function testOneShotPersistentReadRouting(): Promise<void> {
 	let processCalls = 0;
 	let closeCalls = 0;
 	try {
+		const vaultFence = createCanonicalVaultFenceV1(vault);
+		const realPersistentTransport = new PersistentReadTransportV1(requestRoot);
+		try {
+			for (const [index, command] of persistentReadCommands.entries()) {
+				await assert.rejects(
+					realPersistentTransport.invoke({
+						requestId: `real-persistent-policy-${command}`,
+						command,
+						requestToken: index.toString(16).padStart(32, '0'),
+						vaultFence,
+					}),
+					error => {
+						assert.ok(error instanceof PersistentReadTransportErrorV1);
+						assert.notEqual(error.message, 'PERSISTENT_COMMAND_NOT_ALLOWED', command);
+						return true;
+					},
+				);
+			}
+			for (const [index, command] of ['mutation.preview', 'mutation.apply'].entries()) {
+				await assert.rejects(
+					realPersistentTransport.invoke({
+						requestId: `real-persistent-policy-${command}`,
+						command,
+						requestToken: (index + 12).toString(16).padStart(32, '0'),
+						vaultFence,
+					}),
+					/PERSISTENT_COMMAND_NOT_ALLOWED/u,
+				);
+			}
+		} finally {
+			realPersistentTransport.close();
+		}
+		for (const command of persistentReadCommands) {
+			assert.equal(isPersistentReadCommandV1(command), true, command);
+		}
+		assert.equal(isPersistentReadCommandV1('mutation.preview'), false);
+		assert.equal(isPersistentReadCommandV1('mutation.apply'), false);
 		mkdirSync(configRoot, { recursive: true, mode: 0o700 });
 		chmodSync(configRoot, 0o700);
 		const pluginRoot = path.join(vault, '.obsidian', 'plugins', 'operon');
@@ -1967,30 +2010,14 @@ async function testOneShotPersistentReadRouting(): Promise<void> {
 			},
 			runProcess: async (_executable, args) => {
 				processCalls += 1;
-				const token = args.find(value => value.startsWith('requestToken='))
-					?.slice('requestToken='.length);
-				assert.ok(token);
-				const requestPath = requestPathForTokenV1(token, requestRoot);
-				const request = JSON.parse(readFileSync(requestPath, 'utf8')) as CliInvocationV1;
-				return {
-					exitCode: 0,
-					signal: null,
-					stdout: Buffer.from(JSON.stringify(capabilitiesSuccessEnvelope(
-						request,
-						lstatSync(requestPath).size,
-					))),
-					stderr: Buffer.alloc(0),
-					totalMs: 1,
-					timedOut: false,
-					overflow: false,
-				};
+				throw new Error(`eligible read must try the persistent transport first: ${args.join(' ')}`);
 			},
 		});
-		assert.equal(capabilities.exitCode, 0, capabilities.human);
-		assert.equal(factoryCalls, 1);
-		assert.equal(persistentCalls, 1);
-		assert.equal(processCalls, 1);
-		assert.equal(closeCalls, 1);
+		assert.equal(capabilities.exitCode, 3, capabilities.human);
+		assert.equal(factoryCalls, 2);
+		assert.equal(persistentCalls, 2);
+		assert.equal(processCalls, 0);
+		assert.equal(closeCalls, 2);
 
 		const doctor = await runPublicCommandLineV1([
 			'doctor',
