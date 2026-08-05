@@ -14,6 +14,24 @@ test('public PR workflow passes the fail-closed policy guard', () => {
 	assertCommandPassed(['workflow-check']);
 });
 
+test('public PR workflow keeps frozen main and external pull request candidate validation separate', async () => {
+	const document = await readFile(workflow, 'utf8');
+	assert.match(document, /if: github\.event_name == 'push'\n\s+run: .* run-npm .* test/u);
+	assert.match(document, /if: github\.event_name == 'pull_request'\n\s+run: .* run-npm .* run prepack/u);
+	assert.match(document, /if: github\.event_name == 'pull_request'\n\s+run: .* candidate-test/u);
+	assert.equal(document.includes('actions/upload-artifact@'), false);
+	assert.equal(document.includes('npm publish'), false);
+});
+
+test('pull request candidate validation fails closed without its trusted npm toolchain', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-candidate-negative-'));
+	try {
+		assertCommandFailed(['candidate-test', path.join(root, 'missing-npm'), path.join(root, 'output')]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test('public PR workflow guard rejects unsafe triggers, permissions, artifacts, and mutable actions', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-workflow-negative-'));
 	try {
