@@ -14,6 +14,26 @@ test('public PR workflow passes the fail-closed policy guard', () => {
 	assertCommandPassed(['workflow-check']);
 });
 
+test('public PR workflow keeps frozen main and external pull request candidate validation separate', async () => {
+	const document = await readFile(workflow, 'utf8');
+	assert.match(document, /if: github\.event_name == 'push'\n\s+run: .* run-npm .* test/u);
+	assert.match(document, /if: github\.event_name == 'pull_request' && runner\.os != 'Windows'\n\s+run: .* run-npm .* run prepack/u);
+	assert.match(document, /if: github\.event_name == 'pull_request' && runner\.os != 'Windows'\n\s+run: .* candidate-test/u);
+	assert.match(document, /- name: Validate exact Windows pair\n\s+if: runner\.os == 'Windows' && github\.event_name == 'pull_request'[\s\S]*?run validate:windows:pair/u);
+	assert.match(document, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/u);
+	assert.equal(document.includes('actions/upload-artifact@'), false);
+	assert.equal(document.includes('npm publish'), false);
+});
+
+test('pull request candidate validation fails closed without its trusted npm toolchain', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-candidate-negative-'));
+	try {
+		assertCommandFailed(['candidate-test', path.join(root, 'missing-npm'), path.join(root, 'output')]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test('public PR workflow guard rejects unsafe triggers, permissions, artifacts, and mutable actions', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-workflow-negative-'));
 	try {
@@ -69,7 +89,7 @@ test('public validation identity accepts an exact main push', async () => {
 	}
 });
 
-test('public validation identity accepts an exact pull request merge ref and rejects event drift', async () => {
+test('public validation identity accepts an exact pull request merge ref and rejects event drift', async t => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-event-'));
 	try {
 		const sha = 'b'.repeat(40);
@@ -110,8 +130,18 @@ test('public validation identity accepts an exact pull request merge ref and rej
 		]) assertCommandFailed(['hosted-identity-check'], { ...valid, ...overrides });
 
 		const symlinkPath = path.join(root, 'event-link.json');
-		await symlink(eventPath, symlinkPath);
-		assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: symlinkPath });
+		let symlinkCreated = true;
+		try {
+			await symlink(eventPath, symlinkPath);
+		} catch (error) {
+			const unavailableReason = windowsSymlinkCapabilityUnavailableReason(error);
+			if (!unavailableReason) throw error;
+			t.diagnostic(`${unavailableReason} Event-path symlink assertion skipped.`);
+			symlinkCreated = false;
+		}
+		if (symlinkCreated) {
+			assertCommandFailed(['hosted-identity-check'], { ...valid, GITHUB_EVENT_PATH: symlinkPath });
+		}
 
 		const driftedEventPath = path.join(root, 'pull-request-drift.json');
 		await writeFile(driftedEventPath, JSON.stringify({
@@ -138,6 +168,13 @@ test('public validation identity accepts an exact pull request merge ref and rej
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+function windowsSymlinkCapabilityUnavailableReason(error) {
+	if (process.platform !== 'win32' || !['EACCES', 'ENOSYS', 'EPERM'].includes(error?.code)) {
+		return undefined;
+	}
+	return `Windows file symlink capability is unavailable (${error.code}).`;
+}
 
 function hostedEnvironment(overrides) {
 	return {

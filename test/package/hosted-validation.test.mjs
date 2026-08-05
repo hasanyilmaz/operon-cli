@@ -92,7 +92,7 @@ test('candidate identity is pinned to the accepted Stage 6 release artifact', as
 	}
 });
 
-test('bootstrap npm resolves the bundled CLI without invoking a Windows command shim', async () => {
+test('bootstrap npm resolves the bundled CLI without invoking a Windows command shim', async t => {
 	const windows = spawnSync(process.execPath, [
 		helper, 'bootstrap-npm-path', 'win32', String.raw`C:\hostedtoolcache\windows\node\24.18.0\x64\node.exe`,
 	], { cwd: projectRoot, encoding: 'utf8' });
@@ -132,12 +132,29 @@ test('bootstrap npm resolves the bundled CLI without invoking a Windows command 
 		await rm(cli, { recursive: true });
 		const target = path.join(root, 'npm-cli-target.js');
 		await writeFile(target, '# fixture');
-		await symlink(target, cli);
-		assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
+		let symlinkCreated = true;
+		try {
+			await symlink(target, cli);
+		} catch (error) {
+			const unavailableReason = windowsSymlinkCapabilityUnavailableReason(error);
+			if (!unavailableReason) throw error;
+			t.diagnostic(`${unavailableReason} Bootstrap symlink assertion skipped.`);
+			symlinkCreated = false;
+		}
+		if (symlinkCreated) {
+			assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
+		}
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+function windowsSymlinkCapabilityUnavailableReason(error) {
+	if (process.platform !== 'win32' || !['EACCES', 'ENOSYS', 'EPERM'].includes(error?.code)) {
+		return undefined;
+	}
+	return `Windows file symlink capability is unavailable (${error.code}).`;
+}
 
 test('canonical comparison accepts four equal manifests and rejects drift', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-canonical-compare-'));
@@ -146,7 +163,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		const output = path.join(root, 'output');
 		const fixture = createTarballFixture();
 		const canonical = {
-			package: { name: '@stratejya/operon-cli', version: '1.0.8' },
+			package: { name: '@stratejya/operon-cli', version: '1.0.9' },
 			tarball: {
 				bytes: fixture.tarball.length,
 				sha256: digest('sha256', fixture.tarball, 'hex'),
@@ -157,7 +174,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		for (const name of ['canonical-ubuntu-24.04', 'canonical-macos-14', 'canonical-windows-2022', 'canonical-windows-2025']) {
 			const directory = path.join(input, name);
 			await mkdir(directory, { recursive: true });
-			await writeFile(path.join(directory, 'operon-cli-1.0.8.tgz'), fixture.tarball);
+			await writeFile(path.join(directory, 'operon-cli-1.0.9.tgz'), fixture.tarball);
 			await writeFile(path.join(directory, 'artifact-manifest.json'), JSON.stringify({ canonical, evidence: evidenceFor(name) }));
 		}
 		assertCommandPassed(['compare-candidates', input, output], {
@@ -169,7 +186,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 			GITHUB_REF: 'refs/heads/main',
 			GITHUB_REF_NAME: 'main',
 		});
-		const tamperedTarball = path.join(input, 'canonical-windows-2025', 'operon-cli-1.0.8.tgz');
+		const tamperedTarball = path.join(input, 'canonical-windows-2025', 'operon-cli-1.0.9.tgz');
 		const tampered = Buffer.from(fixture.tarball);
 		tampered[tampered.length - 1] ^= 0xff;
 		await writeFile(tamperedTarball, tampered);
@@ -187,7 +204,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		await writeFile(drifted, JSON.stringify({ canonical, evidence: evidenceFor('canonical-windows-2025') }));
 		const unexpected = path.join(input, 'canonical-unexpected');
 		await mkdir(unexpected, { recursive: true });
-		await writeFile(path.join(unexpected, 'operon-cli-1.0.8.tgz'), fixture.tarball);
+		await writeFile(path.join(unexpected, 'operon-cli-1.0.9.tgz'), fixture.tarball);
 		await writeFile(path.join(unexpected, 'artifact-manifest.json'), JSON.stringify({ canonical, evidence: evidenceFor('canonical-ubuntu-24.04') }));
 		assertCommandFailed(['compare-candidates', input, path.join(root, 'unexpected-output')]);
 	} finally {

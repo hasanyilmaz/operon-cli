@@ -1,6 +1,6 @@
 {
   "name": "@stratejya/operon-cli",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "description": "Official command-line client for the Operon Agent Runtime in Obsidian.",
   "type": "module",
   "license": "GPL-3.0-or-later",
@@ -90,6 +90,8 @@
     "performance:test": "node --test test/performance/*.test.mjs",
     "build:dist": "npm run snapshot:check && node build.mjs",
     "package:test": "node type-consumer.test.mjs && node scripts/test-package.mjs",
+    "validate:windows:candidate": "node scripts/windows-candidate-validation.mjs",
+    "validate:windows:pair": "node scripts/operon-validate-windows-pair.mjs",
     "prepack": "node scripts/check-release-build-env.mjs && npm run generate:check && npm run snapshot:parity:test && npm run lint:strict && npm run typecheck:source && npm run test:portable && npm run performance:test && npm run build:dist",
     "test": "npm run snapshot:negative:test && npm run prepack && npm run package:test"
   },

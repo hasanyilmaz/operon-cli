@@ -21,6 +21,8 @@ import path from 'node:path';
 import test from 'node:test';
 import Ajv2020 from 'ajv/dist/2020.js';
 
+import { symlinkCapabilityUnavailableReasonV1 } from '../fixtures/symlink-capability';
+
 declare const __OPERON_PLAN_STORE_CAPACITY_WORKER_SOURCE__: string;
 
 import type {
@@ -1275,7 +1277,7 @@ test('setup discovers a custom Obsidian configuration directory by the exact Ope
 	}
 });
 
-test('Operon config discovery rejects ambiguity and intermediate symlink escapes', async () => {
+test('Operon config discovery rejects ambiguity', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-config-discovery-safety-'));
 	try {
 		const ambiguousVault = await createVault(root, 'Ambiguous Config Vault');
@@ -1289,7 +1291,19 @@ test('Operon config discovery rejects ambiguity and intermediate symlink escapes
 			() => validateOperonManifestV1(ambiguousVault),
 			/OPERON_CONFIG_DIRECTORY_AMBIGUOUS/u,
 		);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
 
+test('Operon config discovery rejects intermediate symlink escapes', async t => {
+	const directorySymlinkUnavailableReason = symlinkCapabilityUnavailableReasonV1('dir');
+	if (directorySymlinkUnavailableReason) {
+		t.skip(directorySymlinkUnavailableReason);
+		return;
+	}
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-config-discovery-symlink-'));
+	try {
 		const escapedVault = path.join(root, 'Escaped Config Vault');
 		const externalPlugins = path.join(root, 'external-plugins');
 		await mkdir(path.join(escapedVault, '.custom-config'), { recursive: true });
@@ -1298,7 +1312,7 @@ test('Operon config discovery rejects ambiguity and intermediate symlink escapes
 			path.join(externalPlugins, 'operon', 'manifest.json'),
 			JSON.stringify({ id: 'operon', version: '2.6.0', minAppVersion: '1.8.9' }),
 		);
-		await symlink(externalPlugins, path.join(escapedVault, '.custom-config', 'plugins'));
+		await symlink(externalPlugins, path.join(escapedVault, '.custom-config', 'plugins'), 'dir');
 		assert.equal(discoverOperonVaultFromCwdV1(escapedVault), null);
 		assert.throws(
 			() => validateOperonManifestV1(escapedVault),
@@ -1309,17 +1323,35 @@ test('Operon config discovery rejects ambiguity and intermediate symlink escapes
 	}
 });
 
-test('profile resolution canonicalizes symlinks and fails closed for moved or corrupt vault state', async () => {
+test('profile resolution canonicalizes symlinks', async t => {
+	const directorySymlinkUnavailableReason = symlinkCapabilityUnavailableReasonV1('dir');
+	if (directorySymlinkUnavailableReason) {
+		t.skip(directorySymlinkUnavailableReason);
+		return;
+	}
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-profile-safety-'));
 	try {
 		const vault = await createVault(root, 'Canonical Vault');
 		const alias = path.join(root, 'Vault Alias');
-		await symlink(vault, alias);
-		let config = upsertVaultProfileV1(
+		await symlink(vault, alias, 'dir');
+		const config = upsertVaultProfileV1(
 			{ version: 1, profiles: [] },
 			{ name: 'canonical', vaultPath: alias },
 		);
 		assert.equal(config.profiles[0].canonicalPath, vault);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('profile resolution fails closed for moved or corrupt vault state', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-profile-safety-'));
+	try {
+		const vault = await createVault(root, 'Canonical Vault');
+		let config = upsertVaultProfileV1(
+			{ version: 1, profiles: [] },
+			{ name: 'canonical', vaultPath: vault },
+		);
 		const configRoot = path.join(root, 'config');
 		saveOperonCliConfigV1(config, configRoot);
 		await rm(vault, { recursive: true, force: true });
@@ -1398,6 +1430,97 @@ test('diagnostics invocation matches the shared strict V1 decoder', async () => 
 		else process.env.OPERON_CONFIG_HOME = previousConfigHome;
 		await rm(root, { recursive: true, force: true });
 	}
+});
+
+test('configured-default file creation seals the Runtime-resolved template without weakening template invariants', () => {
+	const assertRejected = (
+		label: string,
+		mutate: (plan: SealedMutationPlanV1) => void,
+	): void => {
+		const plan = fakeConfiguredDefaultCreatePlan();
+		mutate(plan);
+		resealPlan(plan);
+		const decoded = decodeSealedMutationPlanV1(plan);
+		assert.equal(decoded.ok, false, label);
+	};
+	const assertAccepted = (
+		label: string,
+		mutate: (plan: SealedMutationPlanV1) => void,
+	): void => {
+		const plan = fakeConfiguredDefaultCreatePlan();
+		mutate(plan);
+		resealPlan(plan);
+		const decoded = decodeSealedMutationPlanV1(plan);
+		assert.equal(decoded.ok, true, decoded.ok ? label : `${label}: ${JSON.stringify(decoded.issues)}`);
+	};
+
+	assertRejected('an explicit requested template must match the sealed template', plan => {
+		if (plan.spec.operation !== 'create' || !plan.createEffects?.[0]) {
+			throw new Error('Expected a configured-default create plan.');
+		}
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'configured-default',
+			templateId: 'template-requested',
+		};
+		plan.createEffects[0].templateId = 'template-runtime-default';
+	});
+	assertAccepted('an explicit requested template accepts matching sealed evidence', plan => {
+		if (plan.spec.operation !== 'create') throw new Error('Expected a configured-default create plan.');
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'configured-default',
+			templateId: 'template-runtime-default',
+		};
+	});
+	assertRejected('an explicit requested template requires sealed template evidence', plan => {
+		if (plan.spec.operation !== 'create' || !plan.createEffects?.[0]) {
+			throw new Error('Expected a configured-default create plan.');
+		}
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'configured-default',
+			templateId: 'template-runtime-default',
+		};
+		delete plan.createEffects[0].templateId;
+		delete plan.createEffects[0].templateDigest;
+	});
+	assertAccepted('configured-default accepts omitted request and effect template evidence', plan => {
+		if (!plan.createEffects?.[0]) throw new Error('Expected a configured-default create effect.');
+		delete plan.createEffects[0].templateId;
+		delete plan.createEffects[0].templateDigest;
+	});
+	for (const missing of ['templateId', 'templateDigest'] as const) {
+		assertRejected(`sealed template evidence rejects missing ${missing}`, plan => {
+			if (!plan.createEffects?.[0]) throw new Error('Expected a configured-default create effect.');
+			delete plan.createEffects[0][missing];
+		});
+	}
+	assertRejected('inline creation cannot seal a file template', plan => {
+		if (plan.spec.operation !== 'create' || !plan.createEffects?.[0]) {
+			throw new Error('Expected a configured-default create plan.');
+		}
+		const locator = {
+			representation: 'inline' as const,
+			filePath: 'Tasks.md',
+			lineNumber: 0,
+		};
+		plan.spec.items[0].target = { representation: 'inline', mode: 'configured-default' };
+		plan.createEffects[0].locator = locator;
+		plan.targets[0].locator = locator;
+	});
+	assertRejected('an exact-path request cannot gain an unsolicited sealed template', plan => {
+		if (plan.spec.operation !== 'create') throw new Error('Expected a configured-default create plan.');
+		plan.spec.items[0].target = {
+			representation: 'file',
+			mode: 'exact-path',
+			filePath: 'Tasks/Configured Default.md',
+		};
+	});
+
+	const configuredDefault = fakeConfiguredDefaultCreatePlan();
+	const decoded = decodeSealedMutationPlanV1(configuredDefault);
+	assert.equal(decoded.ok, true, decoded.ok ? undefined : JSON.stringify(decoded.issues));
 });
 
 test('legacy client identity migrates once and missing initialized identity fails closed', async () => {
@@ -2576,6 +2699,91 @@ function fakePlan(
 	plan.planHash = computeSealedMutationPlanHashV1(plan);
 	const decoded = decodeSealedMutationPlanV1(plan);
 	assert.equal(decoded.ok, true, decoded.ok ? undefined : JSON.stringify(decoded.issues));
+	return plan;
+}
+
+function fakeConfiguredDefaultCreatePlan(): SealedMutationPlanV1 {
+	const locator = {
+		representation: 'file' as const,
+		filePath: 'Tasks/Configured Default.md',
+	};
+	const plan: SealedMutationPlanV1 = {
+		contractVersion: 1,
+		planId: 'phase9-configured-default-create',
+		planHash: '',
+		clientInstanceId: 'operon-cli-phase9',
+		correlationId: 'phase9-configured-default-correlation',
+		idempotencyKeyHash: '4'.repeat(64),
+		receiptTargetDigest: '',
+		capability: 'tasks.create.preview',
+		mutationKind: 'task.create',
+		createdAt: '2026-08-05T08:00:00.000Z',
+		expiresAt: '2026-08-05T08:01:00.000Z',
+		targets: [{
+			operonId: 'abc1234',
+			locator,
+			targetDigest: '7'.repeat(64),
+		}],
+		contextRevision: {
+			index: {
+				sessionId: 'phase9-configured-default',
+				ramGeneration: 1,
+				durable: { status: 'missing' },
+			},
+			settingsFingerprint: '5'.repeat(64),
+			pinnedGeneration: 0,
+			activeTrackerGeneration: 0,
+			repeatSeriesRevision: 0,
+			projectSerialGeneration: 0,
+			projectSerialSignature: '6'.repeat(64),
+		},
+		affectedResources: [{
+			resourceKind: 'task-source',
+			resourceKey: locator.filePath,
+			revision: 'absent',
+		}],
+		atomicGroups: [{
+			groupId: `task-source:${locator.filePath}`,
+			order: 0,
+			resources: [{ resourceKind: 'task-source', resourceKey: locator.filePath }],
+		}],
+		predictedEffects: [{
+			resourceKind: 'task-source',
+			resourceKey: locator.filePath,
+			action: 'create',
+			summary: 'Create one File Task from the configured default.',
+		}],
+		riskLevel: 'routine',
+		requiresConfirmation: false,
+		requiredAcknowledgements: [],
+		warnings: [],
+		spec: {
+			operation: 'create',
+			items: [{
+				itemRef: 'configured-default',
+				description: 'Configured default task',
+				target: { representation: 'file', mode: 'configured-default' },
+				fields: [],
+			}],
+		},
+		createEffects: [{
+			itemRef: 'configured-default',
+			operonId: 'abc1234',
+			locator,
+			expectedAbsence: true,
+			renderedTaskDigest: '8'.repeat(64),
+			plannedSourceDigest: '9'.repeat(64),
+			templateId: 'template-runtime-default',
+			templateDigest: 'a'.repeat(64),
+			resolvedRelatedOperonIds: [],
+		}],
+	};
+	return resealPlan(plan);
+}
+
+function resealPlan(plan: SealedMutationPlanV1): SealedMutationPlanV1 {
+	plan.receiptTargetDigest = computeReceiptTargetDigestV1(plan.targets);
+	plan.planHash = computeSealedMutationPlanHashV1(plan);
 	return plan;
 }
 

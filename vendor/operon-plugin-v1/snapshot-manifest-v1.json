@@ -3,12 +3,12 @@
   "kind": "operon-cli-plugin-snapshot",
   "origin": {
     "repository": "https://github.com/hasanyilmaz/operon",
-    "canonicalVaultCommit": "aaaa70b6f831b79998444e4048d1503af7218b4f",
+    "canonicalVaultCommit": "324648aad082d0c0c64b0330e7364336b185d4f5",
     "publicEquivalenceCommit": "a9ba9ec82430f9a8f6e285831085c9363d7d1a34",
     "cliPackageTreeOid": "ae8fd8c092d7fa3ab70bd80440a786ee2b8a0454",
     "cliSourceTreeOid": "acbce9d541f386302a97e5e4cefb5e90132b7592",
     "cliTestTreeOid": "d9b0b8abb383ae584d0da6752db4efbbe40f56f7",
-    "contractSourceTreeOid": "f913196f35fd2942ff30194e5ba4daff8c6e7da9",
+    "contractSourceTreeOid": "b08b9c9ce2d60a00beb5ed312d28ba571e968942",
     "publicTypeSourceTreeOid": "7f86bf8212e6a58fe9dd44abd9818cada542907f",
     "runtimeSchemaTreeOid": "bd2175490f0357c336603ce7d56a06b20a8b1491"
   },
@@ -27,7 +27,7 @@
   "groups": {
     "contractSource": {
       "fileCount": 15,
-      "aggregateSha256": "852c12c69c1600c259afcb1b299d2649394652e1a72f8a6d7d2a633e6886818d"
+      "aggregateSha256": "96e106837883bb7aec947ee2df902206626140ff9426c11ddf2b24cff67f9a7a"
     },
     "publicTypeSource": {
       "fileCount": 5,
@@ -168,8 +168,8 @@
     },
     {
       "path": "src/agent-runtime/contracts/v1/decode.ts",
-      "sha256": "acb3aac3eb17dd601bf79ed835f6c0913dc1312ad1fe8751271a8fa37e1103fd",
-      "bytes": 290274,
+      "sha256": "f154e8c00b2f8824943131a615316eb0a8cbce15b954bc5ec3e532bdf1ab3482",
+      "bytes": 290450,
       "mode": "644"
     },
     {
@@ -281,5 +281,5 @@
       "mode": "644"
     }
   ],
-  "snapshotAggregateSha256": "fd61aed9283871d4f3607ef6e5ba5b14f5caabcb2b0c5ca7feb8b944a5174352"
+  "snapshotAggregateSha256": "e86863cd16c854e5dfc2a311c3ac70edf45a0b611bb56ee63025c82b799887a4"
 }

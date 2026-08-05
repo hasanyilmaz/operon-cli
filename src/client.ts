@@ -666,9 +666,16 @@ async function mutationDispatchMayHaveStartedV1(
 
 export function isPersistentReadCommandV1(command: CliCommandV1): boolean {
 	return command === 'health'
+		|| command === 'capabilities'
+		|| command === 'diagnostics'
+		|| command === 'catalog'
+		|| command === 'entity.resolve'
 		|| command === 'task.get'
 		|| command === 'tasks.query'
-		|| command === 'context.build';
+		|| command === 'tasks.finder'
+		|| command === 'relationships.get'
+		|| command === 'context.build'
+		|| command === 'timers.read';
 }
 
 function runSpawnTransport(

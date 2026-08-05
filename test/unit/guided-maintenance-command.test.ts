@@ -81,9 +81,11 @@ function runPublicCommandLineV1(
 	argv: string[],
 	ports: PublicCommandPortsV1 = {},
 ): ReturnType<typeof runProductionPublicCommandLineV1> {
-	const harnessPorts = ports._createPersistentReadTransport
-		? ports
-		: { ...ports, _createPersistentReadTransport: () => undefined };
+	const harnessPorts: PublicCommandPortsV1 = {
+		...ports,
+		_createPersistentReadTransport:
+			ports._createPersistentReadTransport ?? (() => undefined),
+	};
 	const harnessArgv = process.platform === 'win32'
 		&& harnessPorts.runProcess
 		&& !argv.includes('--obsidian-bin')

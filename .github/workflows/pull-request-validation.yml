@@ -35,6 +35,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 1
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
@@ -57,12 +58,13 @@ jobs:
           - id: windows-2022
             os: windows-2022
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 1
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24.18.0
@@ -78,12 +80,30 @@ jobs:
           "NPM_CONFIG_USERCONFIG=$env:NPM_CONFIG_USERCONFIG" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "NPM_CONFIG_CACHE=$env:NPM_CONFIG_CACHE" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
       - run: node scripts/hosted-validation.mjs acquire-npm "${{ runner.temp }}/operon-npm"
-      - run: node scripts/hosted-validation.mjs install-script-check
-      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" ci --include=dev --no-audit --no-fund
-      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" cache verify
-      - run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" test
-      - name: Native Windows evidence
-        if: runner.os == 'Windows'
+      - if: runner.os != 'Windows' || github.event_name == 'push'
+        run: node scripts/hosted-validation.mjs install-script-check
+      - if: runner.os != 'Windows' || github.event_name == 'push'
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" ci --include=dev --no-audit --no-fund
+      - if: runner.os != 'Windows' || github.event_name == 'push'
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" cache verify
+      - name: Validate frozen main release identity
+        if: github.event_name == 'push'
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" test
+      - name: Validate pull request source
+        if: github.event_name == 'pull_request' && runner.os != 'Windows'
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run prepack
+      - name: Validate pull request package candidate
+        if: github.event_name == 'pull_request' && runner.os != 'Windows'
+        run: node scripts/pull-request-validation.mjs candidate-test "${{ runner.temp }}/operon-npm" "${{ runner.temp }}/operon-pr-candidate"
+      - name: Validate exact Windows pair
+        if: runner.os == 'Windows' && github.event_name == 'pull_request'
+        env:
+          OPERON_PLUGIN_CANDIDATE_SHA: 2b3859eb3a891c1e4e6403aae2ba799d2779cb84
+        run: |
+          $cliSha = git rev-parse HEAD
+          node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run validate:windows:pair -- "$env:OPERON_PLUGIN_CANDIDATE_SHA" "$cliSha"
+      - name: Native Windows evidence for frozen main
+        if: runner.os == 'Windows' && github.event_name == 'push'
         run: node scripts/run-typescript-tests.mjs test/hosted
       - name: Guard tracked state
         run: |
