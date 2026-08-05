@@ -81,16 +81,21 @@ function runPublicCommandLineV1(
 	argv: string[],
 	ports: PublicCommandPortsV1 = {},
 ): ReturnType<typeof runProductionPublicCommandLineV1> {
+	const harnessPorts: PublicCommandPortsV1 = {
+		...ports,
+		_createPersistentReadTransport:
+			ports._createPersistentReadTransport ?? (() => undefined),
+	};
 	const harnessArgv = process.platform === 'win32'
-		&& ports.runProcess
+		&& harnessPorts.runProcess
 		&& !argv.includes('--obsidian-bin')
 		? [...argv, '--obsidian-bin', process.execPath]
 		: argv;
-	if (process.platform !== 'win32' || ports._windowsBrokerClient) {
-		return runProductionPublicCommandLineV1(harnessArgv, ports);
+	if (process.platform !== 'win32' || harnessPorts._windowsBrokerClient) {
+		return runProductionPublicCommandLineV1(harnessArgv, harnessPorts);
 	}
 	return runProductionPublicCommandLineV1(harnessArgv, {
-		...ports,
+		...harnessPorts,
 		_windowsBrokerClient: createHarnessWindowsBrokerV1(),
 	});
 }
