@@ -92,7 +92,7 @@ test('candidate identity is pinned to the accepted Stage 6 release artifact', as
 	}
 });
 
-test('bootstrap npm resolves the bundled CLI without invoking a Windows command shim', async () => {
+test('bootstrap npm resolves the bundled CLI without invoking a Windows command shim', async t => {
 	const windows = spawnSync(process.execPath, [
 		helper, 'bootstrap-npm-path', 'win32', String.raw`C:\hostedtoolcache\windows\node\24.18.0\x64\node.exe`,
 	], { cwd: projectRoot, encoding: 'utf8' });
@@ -132,12 +132,29 @@ test('bootstrap npm resolves the bundled CLI without invoking a Windows command 
 		await rm(cli, { recursive: true });
 		const target = path.join(root, 'npm-cli-target.js');
 		await writeFile(target, '# fixture');
-		await symlink(target, cli);
-		assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
+		let symlinkCreated = true;
+		try {
+			await symlink(target, cli);
+		} catch (error) {
+			const unavailableReason = windowsSymlinkCapabilityUnavailableReason(error);
+			if (!unavailableReason) throw error;
+			t.diagnostic(`${unavailableReason} Bootstrap symlink assertion skipped.`);
+			symlinkCreated = false;
+		}
+		if (symlinkCreated) {
+			assertCommandFailed(['bootstrap-npm-invocation', process.platform, executable, '--version']);
+		}
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
+
+function windowsSymlinkCapabilityUnavailableReason(error) {
+	if (process.platform !== 'win32' || !['EACCES', 'ENOSYS', 'EPERM'].includes(error?.code)) {
+		return undefined;
+	}
+	return `Windows file symlink capability is unavailable (${error.code}).`;
+}
 
 test('canonical comparison accepts four equal manifests and rejects drift', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-canonical-compare-'));
