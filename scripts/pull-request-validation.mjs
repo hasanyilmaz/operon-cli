@@ -9,9 +9,10 @@ import {
 	assertOperonPackageInventoryV1,
 	normalizeOperonPackageTarballV1,
 } from './package-archive.mjs';
+import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PUBLIC_WORKFLOW_SHA256 = 'a292c068cf63e84bae6e3bd6f1e36645f4800f68ec5c7d3c53705658a45b1948';
+const PUBLIC_WORKFLOW_SHA256 = '858c73d18e4cf5285845d4e1620e9552b831fa48831a00c38636a397eacdb9af';
 
 const [command, ...args] = process.argv.slice(2);
 switch (command) {
@@ -46,6 +47,9 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'node scripts/hosted-validation.mjs install-script-check',
 		'node scripts/hosted-validation.mjs run-npm',
 		'node scripts/pull-request-validation.mjs candidate-test',
+		'run validate:windows:pair',
+		'OPERON_PLUGIN_CANDIDATE_SHA: 38783509900ba720a2c3f0572adc8ab27b9c8c01',
+		"github.event.pull_request.head.sha",
 		"github.event_name == 'pull_request'",
 		"github.event_name == 'push'",
 		'node scripts/run-typescript-tests.mjs test/hosted',
@@ -138,13 +142,14 @@ async function candidateTest(npmRoot, outputRoot) {
 	const packed = runNpmJson(npmRoot, [
 		'pack', '--json', '--ignore-scripts', '--pack-destination', candidateRoot,
 	], projectRoot)[0];
-	assert.equal(packed?.name, '@stratejya/operon-cli', 'OPERON_CLI_PR_CANDIDATE_NAME_MISMATCH');
-	assert.equal(packed?.version, '1.0.8', 'OPERON_CLI_PR_CANDIDATE_VERSION_MISMATCH');
+	assert.equal(packed?.name, OPERON_CLI_RELEASE_V1.package.name, 'OPERON_CLI_PR_CANDIDATE_NAME_MISMATCH');
+	assert.equal(packed?.version, OPERON_CLI_RELEASE_V1.package.version, 'OPERON_CLI_PR_CANDIDATE_VERSION_MISMATCH');
 	const source = path.join(candidateRoot, packed.filename);
-	const candidate = path.join(candidateRoot, 'operon-cli-1.0.8.tgz');
+	const candidate = path.join(candidateRoot, `operon-cli-${OPERON_CLI_RELEASE_V1.package.version}.tgz`);
 	if (source !== candidate) await rename(source, candidate);
 	const archive = await normalizeOperonPackageTarballV1(candidate);
 	assertOperonPackageInventoryV1(archive.entries);
+	assert.equal(archive.entries.length, OPERON_CLI_RELEASE_V1.inventoryEntries, 'OPERON_CLI_PR_CANDIDATE_INVENTORY_MISMATCH');
 	const canonical = {
 		package: { name: packed.name, version: packed.version },
 		tarball: { bytes: archive.bytes, sha256: archive.sha256, sha512: archive.sha512 },

@@ -1,0 +1,42 @@
+name: Windows pair validation
+
+on:
+  workflow_dispatch:
+    inputs:
+      plugin_sha:
+        description: Exact 40-character Operon Plugin commit SHA
+        required: true
+        type: string
+      cli_sha:
+        description: Exact 40-character Operon CLI commit SHA
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  validate-pair:
+    runs-on: windows-2022
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact CLI candidate
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+          ref: ${{ inputs.cli_sha }}
+      - name: Set up canonical Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24.18.0
+          package-manager-cache: false
+      - name: Pin canonical npm
+        run: node scripts/hosted-validation.mjs acquire-npm "${{ runner.temp }}/operon-npm"
+      - name: Verify pair workflow policy
+        run: node --test test/package/windows-pair-validation.test.mjs
+      - name: Validate exact Windows pair
+        env:
+          OPERON_PLUGIN_SHA: ${{ inputs.plugin_sha }}
+          OPERON_CLI_SHA: ${{ inputs.cli_sha }}
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run validate:windows:pair -- "$env:OPERON_PLUGIN_SHA" "$env:OPERON_CLI_SHA"

@@ -17,8 +17,10 @@ test('public PR workflow passes the fail-closed policy guard', () => {
 test('public PR workflow keeps frozen main and external pull request candidate validation separate', async () => {
 	const document = await readFile(workflow, 'utf8');
 	assert.match(document, /if: github\.event_name == 'push'\n\s+run: .* run-npm .* test/u);
-	assert.match(document, /if: github\.event_name == 'pull_request'\n\s+run: .* run-npm .* run prepack/u);
-	assert.match(document, /if: github\.event_name == 'pull_request'\n\s+run: .* candidate-test/u);
+	assert.match(document, /if: github\.event_name == 'pull_request' && runner\.os != 'Windows'\n\s+run: .* run-npm .* run prepack/u);
+	assert.match(document, /if: github\.event_name == 'pull_request' && runner\.os != 'Windows'\n\s+run: .* candidate-test/u);
+	assert.match(document, /- name: Validate exact Windows pair\n\s+if: runner\.os == 'Windows' && github\.event_name == 'pull_request'[\s\S]*?run validate:windows:pair/u);
+	assert.match(document, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/u);
 	assert.equal(document.includes('actions/upload-artifact@'), false);
 	assert.equal(document.includes('npm publish'), false);
 });
