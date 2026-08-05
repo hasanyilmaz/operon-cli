@@ -27,7 +27,7 @@ try {
 		const asyncTestPromiseGlobal = ASYNC_TEST_PROMISE_GLOBALS.get(path.basename(testFile));
 		const define = {
 			__OPERON_CLI_PACKAGE_NAME__: JSON.stringify('@stratejya/operon-cli'),
-			__OPERON_CLI_VERSION__: JSON.stringify('1.0.8'),
+			__OPERON_CLI_VERSION__: JSON.stringify('1.0.9'),
 			__OPERON_CLI_PERSISTENT_READ__: 'true',
 			__OPERON_CLI_FRAME_TIMING__: 'false',
 		};

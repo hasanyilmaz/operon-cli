@@ -2,7 +2,7 @@
   "manifestVersion": 1,
   "package": {
     "name": "@stratejya/operon-cli",
-    "version": "1.0.8",
+    "version": "1.0.9",
     "executable": "operon",
     "node": "^22.0.0 || ^24.0.0 || ^26.0.0"
   },

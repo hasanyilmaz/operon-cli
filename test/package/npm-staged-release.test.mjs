@@ -189,7 +189,7 @@ async function assertArtifactPassed(root, fixture) {
 async function writeReleaseArtifact(root, fixture) {
 	await rm(root, { recursive: true, force: true });
 	await mkdir(root, { recursive: true });
-	await writeFile(path.join(root, 'operon-cli-1.0.8.tgz'), fixture.tarball);
+	await writeFile(path.join(root, 'operon-cli-1.0.9.tgz'), fixture.tarball);
 	await writeFile(path.join(root, 'artifact-manifest.json'), `${JSON.stringify(fixture.manifest, null, 2)}\n`);
 	await writeFile(path.join(root, 'determinism-report.json'), `${JSON.stringify(fixture.report, null, 2)}\n`);
 }
@@ -202,7 +202,7 @@ function createReleaseArtifactFixture(options = {}) {
 		const content = entryPath === 'package/package.json'
 			? Buffer.from(`${JSON.stringify({
 				name: options.packageName ?? '@stratejya/operon-cli',
-				version: '1.0.8',
+				version: '1.0.9',
 				repository: { url: 'git+https://github.com/hasanyilmaz/operon-cli.git' },
 				publishConfig: { access: 'public', registry: 'https://registry.npmjs.org/', provenance: true },
 			})}\n`)
@@ -230,7 +230,7 @@ function createReleaseArtifactFixture(options = {}) {
 	};
 	const aggregate = prefix => digest('sha256', Buffer.from(JSON.stringify(inventory.filter(entry => entry.path.startsWith(prefix)))), 'hex');
 	const identity = {
-		package: { name: '@stratejya/operon-cli', version: '1.0.8' },
+		package: { name: '@stratejya/operon-cli', version: '1.0.9' },
 		registry: 'https://registry.npmjs.org/',
 		tarball: {
 			bytes: tarball.length,

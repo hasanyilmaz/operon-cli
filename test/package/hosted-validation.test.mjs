@@ -163,7 +163,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		const output = path.join(root, 'output');
 		const fixture = createTarballFixture();
 		const canonical = {
-			package: { name: '@stratejya/operon-cli', version: '1.0.8' },
+			package: { name: '@stratejya/operon-cli', version: '1.0.9' },
 			tarball: {
 				bytes: fixture.tarball.length,
 				sha256: digest('sha256', fixture.tarball, 'hex'),
@@ -174,7 +174,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		for (const name of ['canonical-ubuntu-24.04', 'canonical-macos-14', 'canonical-windows-2022', 'canonical-windows-2025']) {
 			const directory = path.join(input, name);
 			await mkdir(directory, { recursive: true });
-			await writeFile(path.join(directory, 'operon-cli-1.0.8.tgz'), fixture.tarball);
+			await writeFile(path.join(directory, 'operon-cli-1.0.9.tgz'), fixture.tarball);
 			await writeFile(path.join(directory, 'artifact-manifest.json'), JSON.stringify({ canonical, evidence: evidenceFor(name) }));
 		}
 		assertCommandPassed(['compare-candidates', input, output], {
@@ -186,7 +186,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 			GITHUB_REF: 'refs/heads/main',
 			GITHUB_REF_NAME: 'main',
 		});
-		const tamperedTarball = path.join(input, 'canonical-windows-2025', 'operon-cli-1.0.8.tgz');
+		const tamperedTarball = path.join(input, 'canonical-windows-2025', 'operon-cli-1.0.9.tgz');
 		const tampered = Buffer.from(fixture.tarball);
 		tampered[tampered.length - 1] ^= 0xff;
 		await writeFile(tamperedTarball, tampered);
@@ -204,7 +204,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 		await writeFile(drifted, JSON.stringify({ canonical, evidence: evidenceFor('canonical-windows-2025') }));
 		const unexpected = path.join(input, 'canonical-unexpected');
 		await mkdir(unexpected, { recursive: true });
-		await writeFile(path.join(unexpected, 'operon-cli-1.0.8.tgz'), fixture.tarball);
+		await writeFile(path.join(unexpected, 'operon-cli-1.0.9.tgz'), fixture.tarball);
 		await writeFile(path.join(unexpected, 'artifact-manifest.json'), JSON.stringify({ canonical, evidence: evidenceFor('canonical-ubuntu-24.04') }));
 		assertCommandFailed(['compare-candidates', input, path.join(root, 'unexpected-output')]);
 	} finally {

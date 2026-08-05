@@ -211,7 +211,7 @@ jobs:
       - run: npm run build:dist
       - name: Consume canonical package
         run: |
-          $env:OPERON_CLI_CANDIDATE_TARBALL = "${{ runner.temp }}/canonical-candidate/operon-cli-1.0.8.tgz"
+          $env:OPERON_CLI_CANDIDATE_TARBALL = "${{ runner.temp }}/canonical-candidate/operon-cli-1.0.9.tgz"
           $env:OPERON_CLI_CANDIDATE_MANIFEST = "${{ runner.temp }}/canonical-candidate/artifact-manifest.json"
           $env:OPERON_CLI_LEGACY_TARBALL = "${{ runner.temp }}/legacy/operon-cli-1.0.7.tgz"
           npm run package:test
