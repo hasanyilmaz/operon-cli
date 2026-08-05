@@ -29,7 +29,7 @@ export async function runWindowsPairValidation(args) {
 	assert.equal(exactHeadSha(projectRoot), cliSha, 'OPERON_WINDOWS_PAIR_CLI_HEAD_MISMATCH');
 	assertTrackedClean(projectRoot, 'INITIAL');
 
-	const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'operon-windows-pair-'));
+	const temporaryRoot = canonicalExistingDirectoryV1(await mkdtemp(path.join(tmpdir(), 'operon-windows-pair-')));
 	let receipt;
 	let primaryError;
 	try {
@@ -101,6 +101,10 @@ export function assertPairInputsV1({ pluginSha, cliSha, platform, arch, nodeVers
 	assert.equal(nodeVersion, EXPECTED_NODE, `OPERON_WINDOWS_PAIR_NODE_VERSION_MISMATCH:${nodeVersion}`);
 	assert.match(pluginSha ?? '', SHA_PATTERN, 'OPERON_WINDOWS_PAIR_PLUGIN_SHA_INVALID');
 	assert.match(cliSha ?? '', SHA_PATTERN, 'OPERON_WINDOWS_PAIR_CLI_SHA_INVALID');
+}
+
+export function canonicalExistingDirectoryV1(directory) {
+	return realpathSync.native(directory);
 }
 
 export function assertPluginReceiptV1(receipt, expectedSha) {
