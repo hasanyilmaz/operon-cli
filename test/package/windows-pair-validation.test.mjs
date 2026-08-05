@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
@@ -9,6 +10,7 @@ import {
 	assertCliReceiptV1,
 	assertPairInputsV1,
 	assertPluginReceiptV1,
+	canonicalExistingDirectoryV1,
 } from '../../scripts/operon-validate-windows-pair.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -26,6 +28,16 @@ test('pair validator requires native Windows, exact Node, and two full SHAs', ()
 		{ pluginSha: 'main', cliSha, platform: 'win32', arch: 'x64', nodeVersion: 'v24.18.0' },
 		{ pluginSha, cliSha: 'refs/heads/main', platform: 'win32', arch: 'x64', nodeVersion: 'v24.18.0' },
 	]) assert.throws(() => assertPairInputsV1(context));
+});
+
+test('pair validator canonicalizes its existing temporary root before nested validation', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-pair-root-'));
+	try {
+		await mkdir(path.join(root, 'child'));
+		assert.equal(canonicalExistingDirectoryV1(path.join(root, 'child', '..')), canonicalExistingDirectoryV1(root));
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test('pair validator accepts only exact non-release Plugin and CLI evidence', () => {
