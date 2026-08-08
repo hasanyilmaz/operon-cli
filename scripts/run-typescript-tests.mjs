@@ -53,6 +53,21 @@ try {
 			format: 'esm',
 			target: 'node22',
 			define,
+			...(path.basename(testFile) === 'guided-maintenance-command.test.ts'
+				? {
+					plugins: [{
+						name: 'guided-maintenance-portable-storage',
+						setup(buildContext) {
+							buildContext.onResolve(
+								{ filter: /^\.\/secure-storage$/ },
+								() => ({
+									path: path.join(projectRoot, 'test/fixtures/portable-storage.ts'),
+								}),
+							);
+						},
+					}],
+				}
+				: {}),
 			...(asyncTestPromiseGlobal
 				? {
 					footer: {
