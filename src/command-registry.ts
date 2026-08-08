@@ -363,6 +363,21 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		},
 	},
 	{
+		id: 'tasks.filter-query',
+		path: ['filter-query'],
+		route: 'runtime',
+		section: 'inspect',
+		summary: 'Evaluate one native saved filter against the live task index.',
+		usage: ['operon filter-query --input <file|-> [--vault <path>|--profile <alias>] [--json]'],
+		options: INPUT_OPTIONS,
+		examples: ['operon filter-query --input request.json --json'],
+		contract: {
+			capability: 'tasks.filter-query',
+			requestSchema: 'task-filter-query-request',
+			resultSchema: 'task-filter-query-result',
+		},
+	},
+	{
 		id: 'tasks.finder',
 		path: ['finder'],
 		route: 'runtime',

@@ -125,7 +125,7 @@ test('command registry is the unique manifest and future completion authority', 
 	]);
 	assert.deepEqual(OPERON_CLI_RUNTIME_COMMANDS_V1, [
 		'health', 'capabilities', 'diagnostics', 'catalog', 'entity.resolve',
-		'task.get', 'tasks.query', 'tasks.finder', 'relationships.get', 'context.build',
+		'task.get', 'tasks.query', 'tasks.filter-query', 'tasks.finder', 'relationships.get', 'context.build',
 		'timers.read', 'mutation.preview', 'mutation.apply',
 	]);
 	assert.deepEqual(OPERON_CLI_CONVENIENCE_COMMANDS_V1, [
