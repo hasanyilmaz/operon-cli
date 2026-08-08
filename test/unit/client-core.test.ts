@@ -852,6 +852,7 @@ function testInteractiveShellLexingAndCompletion(): void {
 	}
 	assert.deepEqual(completeInteractiveShellLineV1('ta')[0], ['task']);
 	assert.deepEqual(completeInteractiveShellLineV1('task ')[0], [
+		'adopt',
 		'cancel',
 		'complete',
 		'convert',

@@ -520,6 +520,32 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		contract: { mutationKind: 'task.create', targetPolicy: 'forbidden' },
 	},
 	{
+		id: 'task.adopt',
+		path: ['task', 'adopt'],
+		route: 'convenience',
+		section: 'tasks',
+		summary: 'Adopt one exact Markdown checkbox as an Operon inline task.',
+		usage: [
+			'operon task adopt --file <vault-relative.md> --line <1-based-line> [--status-id <id>] [--reopen] [--preview-only] [--json]',
+			'operon task adopt --input <file|-> [--vault <path>|--profile <alias>] [--json]',
+		],
+		options: [
+			...INPUT_OPTIONS,
+			'--file <path>        Select one exact vault-relative Markdown file.',
+			'--line <number>      Select one exact one-based source line.',
+			'--status-id <id>     Resolve one exact non-terminal Operon status.',
+			'--reopen             Explicitly reopen a terminal checkbox while adopting it.',
+			'--preview-only       Keep the reviewed adoption plan without applying it.',
+		],
+		examples: [
+			'operon task adopt --file "Inbox.md" --line 12',
+			'operon task adopt --file "Archive.md" --line 8 --reopen --preview-only',
+			'operon task adopt --input intent.json --json',
+		],
+		safety: 'Direct argv reads and seals the exact selected line, then automatically applies one unchanged warning-free plan unless --preview-only is used. Terminal checkboxes require --reopen. Typed input only previews and returns a planRef.',
+		contract: { mutationKind: 'task.adopt', targetPolicy: 'forbidden' },
+	},
+	{
 		id: 'task.update',
 		path: ['task', 'update'],
 		route: 'convenience',

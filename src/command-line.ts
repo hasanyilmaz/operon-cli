@@ -110,6 +110,7 @@ import {
 	compileDirectLifecycleIntentV1,
 	type DirectLifecycleActionV1,
 } from './direct-lifecycle';
+import { compileDirectAdoptIntentV1 } from './direct-adopt';
 import {
 	compileDirectPinnedIntentV1,
 	type DirectPinnedActionV1,
@@ -722,12 +723,14 @@ async function runConvenienceCommand(
 	const allowsDirectTimerSession = DIRECT_TIMER_SESSION_COMMANDS.has(command);
 	const allowsDirectSourceTransition = command === 'task.relocate' || command === 'task.convert';
 	const allowsDirectDelete = command === 'task.delete';
+	const allowsDirectAdopt = command === 'task.adopt';
 	const allowsDirectMutation = allowsDirectLifecycle
 		|| allowsDirectPinned
 		|| allowsDirectReminder
 		|| allowsDirectTimerSession
 		|| allowsDirectSourceTransition
-		|| allowsDirectDelete;
+		|| allowsDirectDelete
+		|| allowsDirectAdopt;
 	const parsed = parseFlags(argv.slice(consumed), {
 		value: [
 			'--vault',
@@ -739,7 +742,8 @@ async function runConvenienceCommand(
 			...(allowsGuidedCreation || allowsCompactUpdate ? ['--input-format'] : []),
 			...(allowsCompactUpdate || allowsDirectMutation ? ['--id', '--description'] : []),
 			...(allowsDirectSourceTransition ? ['--target-file'] : []),
-			...(command === 'task.relocate' || command === 'task.convert' ? ['--line'] : []),
+			...(allowsDirectAdopt ? ['--file', '--status-id'] : []),
+			...(command === 'task.relocate' || command === 'task.convert' || allowsDirectAdopt ? ['--line'] : []),
 			...(command === 'task.convert' ? ['--to', '--template'] : []),
 			...(allowsCompactUpdate ? ['--scope'] : []),
 			...(allowsDirectReminder ? ['--current'] : []),
@@ -751,6 +755,7 @@ async function runConvenienceCommand(
 			...(allowsGuidedCreation || allowsCompactUpdate || allowsDirectMutation
 				? ['--preview-only']
 				: []),
+			...(allowsDirectAdopt ? ['--reopen'] : []),
 		],
 		...(allowsGuidedCreation || allowsCompactUpdate || allowsDirectMutation
 			? { positional: 'any' as const }
@@ -938,6 +943,22 @@ async function runConvenienceCommand(
 		if (!parsed.values['--input'] && hasDirectArguments) {
 			if (parsed.positionals.length > 0) throw new Error('DIRECT_DELETE_ASSIGNMENT_UNAVAILABLE');
 			return await runDirectDeleteCommand(parsed, ports);
+		}
+	}
+	if (allowsDirectAdopt) {
+		const hasDirectArguments = (
+			parsed.values['--file'] !== undefined
+			|| parsed.values['--line'] !== undefined
+			|| parsed.values['--status-id'] !== undefined
+			|| parsed.booleans.has('--reopen')
+			|| parsed.booleans.has('--preview-only')
+		);
+		if (parsed.values['--input'] && hasDirectArguments) {
+			throw new Error('DIRECT_MUTATION_INPUT_CONFLICT');
+		}
+		if (!parsed.values['--input']) {
+			if (parsed.positionals.length > 0) throw new Error('DIRECT_ADOPT_ASSIGNMENT_UNAVAILABLE');
+			return await runDirectAdoptCommand(parsed, ports);
 		}
 	}
 	if (allowsGuidedMaintenance && !parsed.values['--input']) {
@@ -2129,6 +2150,49 @@ async function runDirectDeleteCommand(
 	});
 }
 
+async function runDirectAdoptCommand(
+	parsed: {
+		values: Record<string, string>;
+		booleans: Set<string>;
+	},
+	ports: PublicCommandPortsV1,
+): Promise<PublicCommandOutcomeV1> {
+	const scopedPorts = withResolvedRuntimeTargetV1(parsed.values, ports);
+	const runtimeTargetArgs = runtimeTargetArgsFor(parsed.values, scopedPorts._resolvedTarget);
+	const previewOnly = parsed.booleans.has('--preview-only');
+	const capabilities = await requireDirectMutationCapabilitiesV1({
+		preview: 'tasks.adopt.preview',
+		apply: 'tasks.adopt.apply',
+		previewOnly,
+		descriptionTarget: false,
+		requireCatalog: false,
+		runtimeTargetArgs,
+		ports: scopedPorts,
+		json: parsed.booleans.has('--json'),
+	});
+	if (!capabilities.ok) return capabilities.outcome;
+	const vaultRoot = scopedPorts._resolvedTarget?.canonicalPath;
+	if (!vaultRoot) throw new Error('VAULT_REQUIRED');
+	const intent = compileDirectAdoptIntentV1({
+		vaultRoot,
+		filePath: parsed.values['--file'],
+		line: parsed.values['--line'],
+		...(parsed.values['--status-id'] ? { statusId: parsed.values['--status-id'] } : {}),
+		reopen: parsed.booleans.has('--reopen'),
+	});
+	return await previewAndMaybeApplyDirectIntentV1({
+		command: 'task.adopt',
+		previewCommand: 'task.adopt',
+		expectedMutationKind: 'task.adopt',
+		intent,
+		previewOnly,
+		parsed,
+		runtimeTargetArgs,
+		ports: scopedPorts,
+		previewMessage: 'The checkbox adoption was not applied.',
+	});
+}
+
 export function directMarkdownPathV1(raw: string | undefined): string {
 	const path = raw?.trim() ?? '';
 	if (
@@ -2615,6 +2679,9 @@ function isExpectedDirectMutationPlan(
 	plan: SealedMutationPlanV1,
 	intent: GuidedMutationIntentV1,
 ): boolean {
+	if (intent.spec.operation === 'adopt-inline') {
+		return isExpectedDirectAdoptPlanV1(plan, intent.spec);
+	}
 	const target = intent.target;
 	const specsMatch = intent.spec.operation === 'set-pinned'
 		? isExpectedDirectPinnedSpec(plan.spec, intent.spec)
@@ -2636,6 +2703,41 @@ function isExpectedDirectMutationPlan(
 		&& canonicalJsonV1(toJsonValueV1(plan.targets[0].locator))
 			=== canonicalJsonV1(toJsonValueV1(target.locator))
 		&& specsMatch;
+}
+
+function isExpectedDirectAdoptPlanV1(
+	plan: SealedMutationPlanV1,
+	requested: GuidedMutationIntentV1['spec'],
+): boolean {
+	if (
+		plan.mutationKind !== 'task.adopt'
+		|| plan.targets.length !== 1
+		|| !isPlainRecord(plan.spec)
+		|| !isPlainRecord(requested)
+		|| plan.spec.operation !== 'adopt-inline'
+		|| requested.operation !== 'adopt-inline'
+		|| !isPlainRecord(plan.spec.source)
+		|| !isPlainRecord(requested.source)
+		|| canonicalJsonV1(toJsonValueV1(plan.spec.source))
+			!== canonicalJsonV1(toJsonValueV1(requested.source))
+		|| plan.spec.statusId !== requested.statusId
+		|| plan.spec.terminalSourcePolicy !== requested.terminalSourcePolicy
+		|| typeof plan.spec.operonId !== 'string'
+		|| plan.spec.operonId !== plan.targets[0].operonId
+		|| typeof plan.spec.resultingLine !== 'string'
+		|| typeof plan.spec.sourceDigest !== 'string'
+		|| typeof plan.spec.resultDigest !== 'string'
+		|| !/^[a-f0-9]{64}$/u.test(plan.spec.sourceDigest)
+		|| !/^[a-f0-9]{64}$/u.test(plan.spec.resultDigest)
+		|| !isPlainRecord(plan.spec.locator)
+		|| canonicalJsonV1(toJsonValueV1(plan.spec.locator))
+			!== canonicalJsonV1(toJsonValueV1(plan.targets[0].locator))
+	) return false;
+	const allowed = new Set([
+		'operation', 'source', 'statusId', 'terminalSourcePolicy', 'operonId',
+		'resolvedStatusId', 'resultingLine', 'sourceDigest', 'resultDigest', 'locator',
+	]);
+	return Object.keys(plan.spec).every(key => allowed.has(key));
 }
 
 export function isExpectedDirectConvertSpecV1(
@@ -4398,6 +4500,7 @@ function convenienceMapping(command: string, spec?: Record<string, unknown>): {
 		'task.pin': ['task.pinned-state', 'set-pinned'],
 		'task.unpin': ['task.pinned-state', 'set-pinned'],
 		'task.delete': ['task.delete', 'delete'],
+		'task.adopt': ['task.adopt', 'adopt-inline'],
 		'task.convert': ['task.convert', 'convert'],
 		'task.relocate': ['task.inline-relocate', 'relocate-inline'],
 		'reminder.add': ['task.reminder-item', 'add'],

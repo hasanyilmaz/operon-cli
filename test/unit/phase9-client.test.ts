@@ -129,7 +129,7 @@ test('command registry is the unique manifest and future completion authority', 
 		'timers.read', 'mutation.preview', 'mutation.apply',
 	]);
 	assert.deepEqual(OPERON_CLI_CONVENIENCE_COMMANDS_V1, [
-		'task.create', 'task.update', 'task.complete', 'task.reopen', 'task.cancel',
+		'task.create', 'task.adopt', 'task.update', 'task.complete', 'task.reopen', 'task.cancel',
 		'task.pin', 'task.unpin', 'task.transition', 'task.delete',
 		'task.convert', 'task.relocate', 'reminder.add', 'reminder.replace',
 		'reminder.remove', 'timer.session.add', 'timer.session.update',
@@ -175,6 +175,7 @@ test('command registry is the unique manifest and future completion authority', 
 		'doctor',
 	]);
 	assert.deepEqual(completionCandidatesV1(['task', '']), [
+		'adopt',
 		'cancel',
 		'complete',
 		'convert',
@@ -645,6 +646,7 @@ test('help and unknown commands are resolved locally before vault or Runtime acc
 			'  find             Find and exactly verify one task through an interactive live-index picker.',
 			'  get              Read one exact Operon task.',
 			'  create           Create one task or preview a compact line batch.',
+			'  adopt            Adopt one exact Markdown checkbox as an Operon inline task.',
 			'  update           Update an exact task through guided, compact, or typed input.',
 			'  complete         Complete one exact task through a sealed semantic transition.',
 			'  reopen           Reopen one exact terminal task in its first resolved non-terminal status.',

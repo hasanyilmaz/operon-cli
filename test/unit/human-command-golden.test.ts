@@ -38,8 +38,8 @@ globalThis.__operonHumanCommandGoldenTestRun = Promise.resolve().then(() => {
 	);
 
 	const manifest = createCliManifestBaseV1('0.1.0-test');
-	assert.equal(manifest.commands.convenience.length, 19);
-	assert.equal(Object.keys(manifest.mutationCapabilities).length, 12);
+	assert.equal(manifest.commands.convenience.length, 20);
+	assert.equal(Object.keys(manifest.mutationCapabilities).length, 13);
 
 	for (const testCase of fixture.cases) {
 		const definition = commandDefinitionByIdV1(testCase.commandId);
@@ -58,7 +58,7 @@ globalThis.__operonHumanCommandGoldenTestRun = Promise.resolve().then(() => {
 	);
 	assert.equal(
 		OPERON_CLI_COMMAND_DEFINITIONS_V1.filter(definition => definition.route === 'convenience').length,
-		19,
+		20,
 	);
 	console.log('Human CLI command golden registry tests passed');
 });

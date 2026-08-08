@@ -128,6 +128,10 @@ export const OPERON_CLI_MUTATION_CAPABILITIES_V1 = Object.freeze({
 		preview: 'tasks.delete.preview',
 		apply: 'tasks.delete.apply',
 	}),
+	'task.adopt': Object.freeze({
+		preview: 'tasks.adopt.preview',
+		apply: 'tasks.adopt.apply',
+	}),
 });
 
 export const OPERON_CLI_RUNTIME_CAPABILITIES_V1 = Object.freeze({
@@ -146,6 +150,7 @@ export const OPERON_CLI_CONVENIENCE_MUTATIONS_V1 = Object.freeze({
 	'task.unpin': 'task.pinned-state',
 	'task.transition': 'task.transition',
 	'task.delete': 'task.delete',
+	'task.adopt': 'task.adopt',
 	'task.convert': 'task.convert',
 	'task.relocate': 'task.inline-relocate',
 	'reminder.add': 'task.reminder-item',
@@ -168,6 +173,7 @@ export const OPERON_CLI_CONVENIENCE_TARGET_POLICIES_V1 = Object.freeze({
 	'task.unpin': 'required',
 	'task.transition': 'required',
 	'task.delete': 'required',
+	'task.adopt': 'forbidden',
 	'task.convert': 'required',
 	'task.relocate': 'required',
 	'reminder.add': 'required',
