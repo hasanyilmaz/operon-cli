@@ -19,6 +19,7 @@ import type {
 	SealedMutationPlanV1,
 	StructuredErrorV1,
 	TaskContextV1,
+	CreateTaskSpecV1,
 	TaskFinderRequestV1,
 	TaskFinderResultV1,
 	TaskGetRequestV1,
@@ -111,6 +112,7 @@ import {
 	type DirectLifecycleActionV1,
 } from './direct-lifecycle';
 import { compileDirectAdoptIntentV1 } from './direct-adopt';
+import { withFileTaskIdentityPlaceholderPolicyV1 } from './create-identity-policy';
 import {
 	compileDirectPinnedIntentV1,
 	type DirectPinnedActionV1,
@@ -254,6 +256,8 @@ export interface PublicCommandPortsV1 {
 	_createPersistentReadTransport?: () => PersistentReadTransportV1 | undefined;
 	/** Internal Windows broker seam used by platform acceptance tests. */
 	_windowsBrokerClient?: WindowsBrokerClientPortV1;
+	/** Internal command-scope capability discovery cache; never serialized. */
+	_capabilityAdvertisements?: CapabilityAdvertisementV1[];
 }
 
 const CONVENIENCE_COMMAND_SET = new Set<string>(OPERON_CLI_CONVENIENCE_COMMANDS_V1);
@@ -968,8 +972,15 @@ async function runConvenienceCommand(
 	if (!parsed.values['--input']) throw new Error('INPUT_REQUIRED');
 	if (parsed.positionals.length > 0) throw new Error('GUIDED_INPUT_CONFLICT');
 	const intent = parseMutationIntent(await readInput(parsed.values['--input'], ports.input));
-	const mapping = convenienceMapping(command, intent.spec);
-	if (intent.spec.operation !== mapping.operation) throw new Error('MUTATION_OPERATION_MISMATCH');
+	const spec = command === 'task.create' && intent.spec.operation === 'create'
+		? await applyFileTaskIdentityPlaceholderPolicyV1(
+			intent.spec as unknown as CreateTaskSpecV1,
+			parsed.values,
+			ports,
+		)
+		: intent.spec;
+	const mapping = convenienceMapping(command, spec as Record<string, unknown>);
+	if (spec.operation !== mapping.operation) throw new Error('MUTATION_OPERATION_MISMATCH');
 	if (
 		(command === 'task.pin' && intent.spec.pinned !== true)
 		|| (command === 'task.unpin' && intent.spec.pinned !== false)
@@ -995,7 +1006,7 @@ async function runConvenienceCommand(
 		capability: mapping.capability,
 		mutationKind: mapping.mutationKind,
 		...(intent.target ? { target: intent.target } : {}),
-		spec: intent.spec as unknown as MutationPreviewRequestV1['spec'],
+		spec: spec as MutationPreviewRequestV1['spec'],
 		authorization: {
 			basis: 'user-explicit-request',
 			reason: intent.reason ?? `The user requested Operon ${command}.`,
@@ -1015,6 +1026,41 @@ async function runConvenienceCommand(
 	return await runRuntimeCommand(runtimeArgs, ports, {
 		input: Buffer.from(JSON.stringify(request), 'utf8'),
 	});
+}
+
+async function applyFileTaskIdentityPlaceholderPolicyV1(
+	spec: CreateTaskSpecV1,
+	values: Record<string, string>,
+	ports: PublicCommandPortsV1,
+): Promise<CreateTaskSpecV1> {
+	if (!spec.items.some(item => item.target.representation === 'file')) return spec;
+	const scopedPorts = withResolvedRuntimeTargetV1(values, ports);
+	const runtimeTargetArgs = runtimeTargetArgsFor(values, scopedPorts._resolvedTarget);
+	const capabilities = scopedPorts._capabilityAdvertisements
+		? undefined
+		: await runRuntimeCommand(
+			['capabilities', ...runtimeTargetArgs, '--json'],
+			scopedPorts,
+		);
+	if (
+		capabilities !== undefined
+		&& (
+			capabilities.exitCode !== 0
+			|| capabilities.envelope.kind !== 'cli-result'
+			|| !capabilities.envelope.ok
+			|| !Array.isArray(capabilities.envelope.result)
+		)
+	) return spec;
+	const advertisements = scopedPorts._capabilityAdvertisements
+		?? (capabilities?.envelope.kind === 'cli-result' && capabilities.envelope.ok
+			? capabilities.envelope.result as CapabilityAdvertisementV1[]
+			: []);
+	const advertisement = advertisements
+		.find(item => item.id === 'tasks.create.identity-placeholders');
+	return withFileTaskIdentityPlaceholderPolicyV1(
+		spec,
+		advertisement?.availability === 'available',
+	);
 }
 
 async function runCompactCreationCommand(
@@ -3152,6 +3198,7 @@ async function loadCreationModelV1(
 			return { outcome: capabilities };
 		}
 		assertCreationCapabilities(capabilities.envelope.result, requireApply, capabilityErrorCode);
+		ports._capabilityAdvertisements = capabilities.envelope.result as CapabilityAdvertisementV1[];
 	}
 	const contextRequest = {
 		contractVersion: 1,
