@@ -36,7 +36,7 @@ const projection = {
 	},
 	runtimeV1: {
 		contractVersion: 1,
-		contractDigest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
+		contractDigest: '79ba528ea0f8e249cb9583bc0d9b91bba6293d7b2531051fbecd25c39820c9ef',
 		schemaAggregateSha256: 'd1ade3d9214c5ad06f3731388c15751d240993045e124da39f09f1a0ba099c4e',
 	},
 	toolchain: {

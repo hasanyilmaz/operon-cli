@@ -1,29 +1,29 @@
 export const OPERON_CLI_RELEASE_V1 = Object.freeze({
 	package: Object.freeze({
 		name: '@stratejya/operon-cli',
-		version: '1.0.9',
+		version: '1.1.0',
 	}),
 	distTag: 'latest',
 	registry: 'https://registry.npmjs.org/',
 	tarball: Object.freeze({
-		bytes: 214_810,
-		sha256: '13d537a752690b8bdd6f0a5afdb64d50e7dae82653e0f1b13d79f5a26b987225',
-		sha512: 'Fl2Axn85XfILTR7B9zLCC9OPpIZ023DbPGGsh8PTaKxHj8JfBz4/3QY4zs0kdIIR83UBDf1Y/gB/ky0vNOFOPQ==',
+		bytes: 218_845,
+		sha256: 'f3ac7e1d6411c1d7068d101d5394ffb2b022174c8e65210b3791bee844f908fa',
+		sha512: 'SBx5uGqpXaQMo4n979J7RuNenjv06L8660Qs1E353GwfUcAA8Kz7hOhIsw7yrg9mfLGtd9Bzbx5sTZrCiGTPuA==',
 	}),
 	inventoryEntries: 41,
 	executable: Object.freeze({
-		bytes: 514_849,
-		sha256: '1a1658943ec990fa94bcbb58799afc0dfbc5d1d8c6254102672ae9f340dba731',
+		bytes: 527_264,
+		sha256: 'a942782d7a6af635be1b51d07b60ce2beca90e2179c80c5f62bfbfc9235b6b64',
 		mode: 0o755,
 	}),
 	manifest: Object.freeze({
-		bytes: 51_235,
-		sha256: '79eb2aef24f443474b3dc8301ba71fbb07142556ec9268783f5cd3a6df9801ac',
+		bytes: 52_507,
+		sha256: '7ff41835609ac34b0658751f264270925fdc93dada3bbfca67e3bbc0c181aca9',
 		mode: 0o644,
 	}),
-	schemas: 'e843f87facf647617b613f3cb1d19ffd858054581a943aeab3ebff25b67db247',
-	declarations: '2d1043363a96c156086c4b974bb43d0cd151acc94663a50d5834759fa4d2b45d',
-	runtimeV1Digest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
+	schemas: 'ec36c956b6ce8d0c25a0e692cf2a52ccbab01f7a2706ad1d7863fd3cbabfa663',
+	declarations: 'd427b4e2f116ce856dd8114238209b5a3f6b3f5900060596357a71483a21e709',
+	runtimeV1Digest: '79ba528ea0f8e249cb9583bc0d9b91bba6293d7b2531051fbecd25c39820c9ef',
 });
 
 export const OPERON_CLI_PUBLISH_NPM_V1 = Object.freeze({
@@ -37,6 +37,6 @@ export const OPERON_CLI_RELEASE_WORKFLOW_V1 = Object.freeze({
 	hostedWorkflowPath: '.github/workflows/hosted-validation.yml',
 	releaseWorkflow: 'npm-staged-release.yml',
 	environment: 'npm-staging',
-	tag: 'cli-v1.0.9',
-	confirmation: 'STAGE @stratejya/operon-cli@1.0.9 TO latest',
+	tag: 'cli-v1.1.0',
+	confirmation: 'STAGE @stratejya/operon-cli@1.1.0 TO latest',
 });

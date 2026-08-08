@@ -159,8 +159,8 @@ export async function artifactCheckV1(
 	assertRunId(expectedRunId, 'OPERON_CLI_RELEASE_EXPECTED_RUN_ID_INVALID');
 	assert.equal(expectedTarball, releaseIdentity.tarball.sha256, 'OPERON_CLI_RELEASE_TARBALL_BASELINE_MISMATCH');
 	const names = (await readdir(root)).sort();
-	assert.deepEqual(names, ['artifact-manifest.json', 'determinism-report.json', 'operon-cli-1.0.9.tgz'], 'OPERON_CLI_RELEASE_ARTIFACT_INVENTORY_MISMATCH');
-	const tarballPath = path.join(root, 'operon-cli-1.0.9.tgz');
+	assert.deepEqual(names, ['artifact-manifest.json', 'determinism-report.json', 'operon-cli-1.1.0.tgz'], 'OPERON_CLI_RELEASE_ARTIFACT_INVENTORY_MISMATCH');
+	const tarballPath = path.join(root, 'operon-cli-1.1.0.tgz');
 	const manifestPath = path.join(root, 'artifact-manifest.json');
 	const reportPath = path.join(root, 'determinism-report.json');
 	await assertRegularFile(tarballPath, 'OPERON_CLI_RELEASE_TARBALL_FILE_INVALID');

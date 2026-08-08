@@ -482,7 +482,43 @@ export async function runPublicCommandLineV1(
 			return localFailure(convenience.command, argv.includes('--json'), error);
 		}
 	}
+	if (resolveCommandDefinitionV1(argv, 'runtime')?.definition.id === 'tasks.filter-query') {
+		return await runFilterQueryCommand(argv, ports);
+	}
 	recordCommandResolution();
+	return await runRuntimeCommand(argv, ports);
+}
+
+async function runFilterQueryCommand(
+	argv: string[],
+	ports: PublicCommandPortsV1,
+): Promise<PublicCommandOutcomeV1> {
+	const targetArgs = [
+		...(readFlag(argv, '--vault') ? ['--vault', readFlag(argv, '--vault')!] : []),
+		...(readFlag(argv, '--profile') ? ['--profile', readFlag(argv, '--profile')!] : []),
+		...(readFlag(argv, '--timeout-ms') ? ['--timeout-ms', readFlag(argv, '--timeout-ms')!] : []),
+		...(readFlag(argv, '--obsidian-bin') ? ['--obsidian-bin', readFlag(argv, '--obsidian-bin')!] : []),
+	];
+	const capabilities = await runRuntimeCommand(
+		['capabilities', ...targetArgs, '--json'],
+		ports,
+	);
+	if (
+		capabilities.exitCode !== 0
+		|| capabilities.envelope.kind !== 'cli-result'
+		|| !capabilities.envelope.ok
+	) return { ...capabilities, json: argv.includes('--json') };
+	const advertisements = Array.isArray(capabilities.envelope.result)
+		? capabilities.envelope.result as CapabilityAdvertisementV1[]
+		: [];
+	const advertisement = advertisements.find(item => item.id === 'tasks.filter-query');
+	if (advertisement?.availability !== 'available') {
+		return localFailure(
+			'tasks.filter-query',
+			argv.includes('--json'),
+			new Error('FILTER_QUERY_CAPABILITY_UNAVAILABLE'),
+		);
+	}
 	return await runRuntimeCommand(argv, ports);
 }
 
@@ -2348,11 +2384,11 @@ async function requireDirectMutationCapabilitiesV1(options: {
 	) {
 		return { ok: false, outcome: { ...capabilities, json: options.json } };
 	}
-	assertCapabilitiesAvailable(
-		capabilities.envelope.result,
-		required,
-		'DIRECT_CAPABILITY_UNAVAILABLE',
-	);
+		assertCapabilitiesAvailable(
+			capabilities.envelope.result,
+			required,
+			'DIRECT_CAPABILITY_UNAVAILABLE',
+		);
 	return { ok: true };
 }
 
@@ -4784,6 +4820,7 @@ function localFailure(
 		'DESCRIPTION_TARGET_NOT_FOUND',
 		'DESCRIPTION_RESOLUTION_INCOMPLETE',
 		'DIRECT_CAPABILITY_UNAVAILABLE',
+		'FILTER_QUERY_CAPABILITY_UNAVAILABLE',
 		'DIRECT_REMINDER_ITEM_AMBIGUOUS',
 		'DIRECT_REMINDER_ITEM_NOT_FOUND',
 		'DIRECT_REMINDER_ITEMS_INCOMPLETE',
@@ -5083,6 +5120,7 @@ function localErrorReason(code: string): string {
 		COMPACT_UPDATE_SELECTOR_REQUIRED: 'Choose exactly one task target with --id or --description.',
 		COMPACT_VALUE_QUOTE_REQUIRED: 'Quote every raw value with straight ASCII double quotes.',
 		DIRECT_CAPABILITY_UNAVAILABLE: 'The capabilities required by this direct task operation are unavailable.',
+		FILTER_QUERY_CAPABILITY_UNAVAILABLE: 'The live Runtime does not advertise native saved-filter evaluation.',
 		DIRECT_CONVERT_FLAGS_INVALID: 'Use --template only with --to file, and --line only with --to inline.',
 		DIRECT_CONVERT_TO_INVALID: 'Choose exactly one conversion direction with --to file or --to inline.',
 		DIRECT_DELETE_ASSIGNMENT_UNAVAILABLE: 'Direct task deletion accepts only one exact selector and --preview-only.',
