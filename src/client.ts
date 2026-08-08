@@ -692,8 +692,8 @@ function runSpawnTransport(
 	return (ports.runProcess ?? runObsidianProcessV1)(
 		resolveObsidianExecutableV1(options.obsidianBin, { cwd: canonicalVaultPath }),
 		[
-			`vault=${path.basename(canonicalVaultPath)}`,
 			handler,
+			`vault=${path.basename(canonicalVaultPath)}`,
 			`requestToken=${requestToken}`,
 		],
 		{

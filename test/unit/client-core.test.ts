@@ -1412,8 +1412,8 @@ async function testOneShotExecutionAndCleanup(): Promise<void> {
 			assert.equal(calls, 1);
 			assert.equal(seenCwd, realpathSync(vault));
 			assert.deepEqual(seenArgs.slice(0, 2), [
-				`vault=${path.basename(realpathSync(vault))}`,
 				'operon:capabilities',
+				`vault=${path.basename(realpathSync(vault))}`,
 			]);
 			assert.match(seenArgs[2], /^requestToken=[A-Za-z0-9_-]{32}$/u);
 			const token = seenArgs[2].slice('requestToken='.length);
