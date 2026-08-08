@@ -12,7 +12,7 @@ import {
 import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PUBLIC_WORKFLOW_SHA256 = '319d333830ea764c03e5ea5bbdc8931ec7a596c49c9b18b844e90fc8fa32c8fa';
+const PUBLIC_WORKFLOW_SHA256 = 'b2f72563914960ad7f66e12da2da2eb6c00622d2accbfa85d970fb187efc4072';
 
 const [command, ...args] = process.argv.slice(2);
 switch (command) {
@@ -48,7 +48,7 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'node scripts/hosted-validation.mjs run-npm',
 		'node scripts/pull-request-validation.mjs candidate-test',
 		'run validate:windows:pair',
-		'OPERON_PLUGIN_CANDIDATE_SHA: 2b3859eb3a891c1e4e6403aae2ba799d2779cb84',
+		'OPERON_PLUGIN_CANDIDATE_SHA: f4dedfacefb19f8d608c6c2935f487dbdc0a7bd0',
 		"github.event.pull_request.head.sha",
 		"github.event_name == 'pull_request'",
 		"github.event_name == 'push'",

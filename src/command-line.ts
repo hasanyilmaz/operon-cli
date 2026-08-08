@@ -19,6 +19,7 @@ import type {
 	SealedMutationPlanV1,
 	StructuredErrorV1,
 	TaskContextV1,
+	CreateTaskSpecV1,
 	TaskFinderRequestV1,
 	TaskFinderResultV1,
 	TaskGetRequestV1,
@@ -110,6 +111,8 @@ import {
 	compileDirectLifecycleIntentV1,
 	type DirectLifecycleActionV1,
 } from './direct-lifecycle';
+import { compileDirectAdoptIntentV1 } from './direct-adopt';
+import { withFileTaskIdentityPlaceholderPolicyV1 } from './create-identity-policy';
 import {
 	compileDirectPinnedIntentV1,
 	type DirectPinnedActionV1,
@@ -253,6 +256,8 @@ export interface PublicCommandPortsV1 {
 	_createPersistentReadTransport?: () => PersistentReadTransportV1 | undefined;
 	/** Internal Windows broker seam used by platform acceptance tests. */
 	_windowsBrokerClient?: WindowsBrokerClientPortV1;
+	/** Internal command-scope capability discovery cache; never serialized. */
+	_capabilityAdvertisements?: CapabilityAdvertisementV1[];
 }
 
 const CONVENIENCE_COMMAND_SET = new Set<string>(OPERON_CLI_CONVENIENCE_COMMANDS_V1);
@@ -477,7 +482,43 @@ export async function runPublicCommandLineV1(
 			return localFailure(convenience.command, argv.includes('--json'), error);
 		}
 	}
+	if (resolveCommandDefinitionV1(argv, 'runtime')?.definition.id === 'tasks.filter-query') {
+		return await runFilterQueryCommand(argv, ports);
+	}
 	recordCommandResolution();
+	return await runRuntimeCommand(argv, ports);
+}
+
+async function runFilterQueryCommand(
+	argv: string[],
+	ports: PublicCommandPortsV1,
+): Promise<PublicCommandOutcomeV1> {
+	const targetArgs = [
+		...(readFlag(argv, '--vault') ? ['--vault', readFlag(argv, '--vault')!] : []),
+		...(readFlag(argv, '--profile') ? ['--profile', readFlag(argv, '--profile')!] : []),
+		...(readFlag(argv, '--timeout-ms') ? ['--timeout-ms', readFlag(argv, '--timeout-ms')!] : []),
+		...(readFlag(argv, '--obsidian-bin') ? ['--obsidian-bin', readFlag(argv, '--obsidian-bin')!] : []),
+	];
+	const capabilities = await runRuntimeCommand(
+		['capabilities', ...targetArgs, '--json'],
+		ports,
+	);
+	if (
+		capabilities.exitCode !== 0
+		|| capabilities.envelope.kind !== 'cli-result'
+		|| !capabilities.envelope.ok
+	) return { ...capabilities, json: argv.includes('--json') };
+	const advertisements = Array.isArray(capabilities.envelope.result)
+		? capabilities.envelope.result as CapabilityAdvertisementV1[]
+		: [];
+	const advertisement = advertisements.find(item => item.id === 'tasks.filter-query');
+	if (advertisement?.availability !== 'available') {
+		return localFailure(
+			'tasks.filter-query',
+			argv.includes('--json'),
+			new Error('FILTER_QUERY_CAPABILITY_UNAVAILABLE'),
+		);
+	}
 	return await runRuntimeCommand(argv, ports);
 }
 
@@ -722,12 +763,14 @@ async function runConvenienceCommand(
 	const allowsDirectTimerSession = DIRECT_TIMER_SESSION_COMMANDS.has(command);
 	const allowsDirectSourceTransition = command === 'task.relocate' || command === 'task.convert';
 	const allowsDirectDelete = command === 'task.delete';
+	const allowsDirectAdopt = command === 'task.adopt';
 	const allowsDirectMutation = allowsDirectLifecycle
 		|| allowsDirectPinned
 		|| allowsDirectReminder
 		|| allowsDirectTimerSession
 		|| allowsDirectSourceTransition
-		|| allowsDirectDelete;
+		|| allowsDirectDelete
+		|| allowsDirectAdopt;
 	const parsed = parseFlags(argv.slice(consumed), {
 		value: [
 			'--vault',
@@ -739,7 +782,8 @@ async function runConvenienceCommand(
 			...(allowsGuidedCreation || allowsCompactUpdate ? ['--input-format'] : []),
 			...(allowsCompactUpdate || allowsDirectMutation ? ['--id', '--description'] : []),
 			...(allowsDirectSourceTransition ? ['--target-file'] : []),
-			...(command === 'task.relocate' || command === 'task.convert' ? ['--line'] : []),
+			...(allowsDirectAdopt ? ['--file', '--status-id'] : []),
+			...(command === 'task.relocate' || command === 'task.convert' || allowsDirectAdopt ? ['--line'] : []),
 			...(command === 'task.convert' ? ['--to', '--template'] : []),
 			...(allowsCompactUpdate ? ['--scope'] : []),
 			...(allowsDirectReminder ? ['--current'] : []),
@@ -751,6 +795,7 @@ async function runConvenienceCommand(
 			...(allowsGuidedCreation || allowsCompactUpdate || allowsDirectMutation
 				? ['--preview-only']
 				: []),
+			...(allowsDirectAdopt ? ['--reopen'] : []),
 		],
 		...(allowsGuidedCreation || allowsCompactUpdate || allowsDirectMutation
 			? { positional: 'any' as const }
@@ -940,6 +985,22 @@ async function runConvenienceCommand(
 			return await runDirectDeleteCommand(parsed, ports);
 		}
 	}
+	if (allowsDirectAdopt) {
+		const hasDirectArguments = (
+			parsed.values['--file'] !== undefined
+			|| parsed.values['--line'] !== undefined
+			|| parsed.values['--status-id'] !== undefined
+			|| parsed.booleans.has('--reopen')
+			|| parsed.booleans.has('--preview-only')
+		);
+		if (parsed.values['--input'] && hasDirectArguments) {
+			throw new Error('DIRECT_MUTATION_INPUT_CONFLICT');
+		}
+		if (!parsed.values['--input']) {
+			if (parsed.positionals.length > 0) throw new Error('DIRECT_ADOPT_ASSIGNMENT_UNAVAILABLE');
+			return await runDirectAdoptCommand(parsed, ports);
+		}
+	}
 	if (allowsGuidedMaintenance && !parsed.values['--input']) {
 		if (parsed.booleans.has('--json')) throw new Error('INPUT_REQUIRED');
 		return await runGuidedMaintenanceCommand(command, parsed, ports);
@@ -947,8 +1008,15 @@ async function runConvenienceCommand(
 	if (!parsed.values['--input']) throw new Error('INPUT_REQUIRED');
 	if (parsed.positionals.length > 0) throw new Error('GUIDED_INPUT_CONFLICT');
 	const intent = parseMutationIntent(await readInput(parsed.values['--input'], ports.input));
-	const mapping = convenienceMapping(command, intent.spec);
-	if (intent.spec.operation !== mapping.operation) throw new Error('MUTATION_OPERATION_MISMATCH');
+	const spec = command === 'task.create' && intent.spec.operation === 'create'
+		? await applyFileTaskIdentityPlaceholderPolicyV1(
+			intent.spec as unknown as CreateTaskSpecV1,
+			parsed.values,
+			ports,
+		)
+		: intent.spec;
+	const mapping = convenienceMapping(command, spec as Record<string, unknown>);
+	if (spec.operation !== mapping.operation) throw new Error('MUTATION_OPERATION_MISMATCH');
 	if (
 		(command === 'task.pin' && intent.spec.pinned !== true)
 		|| (command === 'task.unpin' && intent.spec.pinned !== false)
@@ -974,7 +1042,7 @@ async function runConvenienceCommand(
 		capability: mapping.capability,
 		mutationKind: mapping.mutationKind,
 		...(intent.target ? { target: intent.target } : {}),
-		spec: intent.spec as unknown as MutationPreviewRequestV1['spec'],
+		spec: spec as MutationPreviewRequestV1['spec'],
 		authorization: {
 			basis: 'user-explicit-request',
 			reason: intent.reason ?? `The user requested Operon ${command}.`,
@@ -994,6 +1062,41 @@ async function runConvenienceCommand(
 	return await runRuntimeCommand(runtimeArgs, ports, {
 		input: Buffer.from(JSON.stringify(request), 'utf8'),
 	});
+}
+
+async function applyFileTaskIdentityPlaceholderPolicyV1(
+	spec: CreateTaskSpecV1,
+	values: Record<string, string>,
+	ports: PublicCommandPortsV1,
+): Promise<CreateTaskSpecV1> {
+	if (!spec.items.some(item => item.target.representation === 'file')) return spec;
+	const scopedPorts = withResolvedRuntimeTargetV1(values, ports);
+	const runtimeTargetArgs = runtimeTargetArgsFor(values, scopedPorts._resolvedTarget);
+	const capabilities = scopedPorts._capabilityAdvertisements
+		? undefined
+		: await runRuntimeCommand(
+			['capabilities', ...runtimeTargetArgs, '--json'],
+			scopedPorts,
+		);
+	if (
+		capabilities !== undefined
+		&& (
+			capabilities.exitCode !== 0
+			|| capabilities.envelope.kind !== 'cli-result'
+			|| !capabilities.envelope.ok
+			|| !Array.isArray(capabilities.envelope.result)
+		)
+	) return spec;
+	const advertisements = scopedPorts._capabilityAdvertisements
+		?? (capabilities?.envelope.kind === 'cli-result' && capabilities.envelope.ok
+			? capabilities.envelope.result as CapabilityAdvertisementV1[]
+			: []);
+	const advertisement = advertisements
+		.find(item => item.id === 'tasks.create.identity-placeholders');
+	return withFileTaskIdentityPlaceholderPolicyV1(
+		spec,
+		advertisement?.availability === 'available',
+	);
 }
 
 async function runCompactCreationCommand(
@@ -2129,6 +2232,49 @@ async function runDirectDeleteCommand(
 	});
 }
 
+async function runDirectAdoptCommand(
+	parsed: {
+		values: Record<string, string>;
+		booleans: Set<string>;
+	},
+	ports: PublicCommandPortsV1,
+): Promise<PublicCommandOutcomeV1> {
+	const scopedPorts = withResolvedRuntimeTargetV1(parsed.values, ports);
+	const runtimeTargetArgs = runtimeTargetArgsFor(parsed.values, scopedPorts._resolvedTarget);
+	const previewOnly = parsed.booleans.has('--preview-only');
+	const capabilities = await requireDirectMutationCapabilitiesV1({
+		preview: 'tasks.adopt.preview',
+		apply: 'tasks.adopt.apply',
+		previewOnly,
+		descriptionTarget: false,
+		requireCatalog: false,
+		runtimeTargetArgs,
+		ports: scopedPorts,
+		json: parsed.booleans.has('--json'),
+	});
+	if (!capabilities.ok) return capabilities.outcome;
+	const vaultRoot = scopedPorts._resolvedTarget?.canonicalPath;
+	if (!vaultRoot) throw new Error('VAULT_REQUIRED');
+	const intent = compileDirectAdoptIntentV1({
+		vaultRoot,
+		filePath: parsed.values['--file'],
+		line: parsed.values['--line'],
+		...(parsed.values['--status-id'] ? { statusId: parsed.values['--status-id'] } : {}),
+		reopen: parsed.booleans.has('--reopen'),
+	});
+	return await previewAndMaybeApplyDirectIntentV1({
+		command: 'task.adopt',
+		previewCommand: 'task.adopt',
+		expectedMutationKind: 'task.adopt',
+		intent,
+		previewOnly,
+		parsed,
+		runtimeTargetArgs,
+		ports: scopedPorts,
+		previewMessage: 'The checkbox adoption was not applied.',
+	});
+}
+
 export function directMarkdownPathV1(raw: string | undefined): string {
 	const path = raw?.trim() ?? '';
 	if (
@@ -2238,11 +2384,11 @@ async function requireDirectMutationCapabilitiesV1(options: {
 	) {
 		return { ok: false, outcome: { ...capabilities, json: options.json } };
 	}
-	assertCapabilitiesAvailable(
-		capabilities.envelope.result,
-		required,
-		'DIRECT_CAPABILITY_UNAVAILABLE',
-	);
+		assertCapabilitiesAvailable(
+			capabilities.envelope.result,
+			required,
+			'DIRECT_CAPABILITY_UNAVAILABLE',
+		);
 	return { ok: true };
 }
 
@@ -2615,6 +2761,9 @@ function isExpectedDirectMutationPlan(
 	plan: SealedMutationPlanV1,
 	intent: GuidedMutationIntentV1,
 ): boolean {
+	if (intent.spec.operation === 'adopt-inline') {
+		return isExpectedDirectAdoptPlanV1(plan, intent.spec);
+	}
 	const target = intent.target;
 	const specsMatch = intent.spec.operation === 'set-pinned'
 		? isExpectedDirectPinnedSpec(plan.spec, intent.spec)
@@ -2636,6 +2785,41 @@ function isExpectedDirectMutationPlan(
 		&& canonicalJsonV1(toJsonValueV1(plan.targets[0].locator))
 			=== canonicalJsonV1(toJsonValueV1(target.locator))
 		&& specsMatch;
+}
+
+function isExpectedDirectAdoptPlanV1(
+	plan: SealedMutationPlanV1,
+	requested: GuidedMutationIntentV1['spec'],
+): boolean {
+	if (
+		plan.mutationKind !== 'task.adopt'
+		|| plan.targets.length !== 1
+		|| !isPlainRecord(plan.spec)
+		|| !isPlainRecord(requested)
+		|| plan.spec.operation !== 'adopt-inline'
+		|| requested.operation !== 'adopt-inline'
+		|| !isPlainRecord(plan.spec.source)
+		|| !isPlainRecord(requested.source)
+		|| canonicalJsonV1(toJsonValueV1(plan.spec.source))
+			!== canonicalJsonV1(toJsonValueV1(requested.source))
+		|| plan.spec.statusId !== requested.statusId
+		|| plan.spec.terminalSourcePolicy !== requested.terminalSourcePolicy
+		|| typeof plan.spec.operonId !== 'string'
+		|| plan.spec.operonId !== plan.targets[0].operonId
+		|| typeof plan.spec.resultingLine !== 'string'
+		|| typeof plan.spec.sourceDigest !== 'string'
+		|| typeof plan.spec.resultDigest !== 'string'
+		|| !/^[a-f0-9]{64}$/u.test(plan.spec.sourceDigest)
+		|| !/^[a-f0-9]{64}$/u.test(plan.spec.resultDigest)
+		|| !isPlainRecord(plan.spec.locator)
+		|| canonicalJsonV1(toJsonValueV1(plan.spec.locator))
+			!== canonicalJsonV1(toJsonValueV1(plan.targets[0].locator))
+	) return false;
+	const allowed = new Set([
+		'operation', 'source', 'statusId', 'terminalSourcePolicy', 'operonId',
+		'resolvedStatusId', 'resultingLine', 'sourceDigest', 'resultDigest', 'locator',
+	]);
+	return Object.keys(plan.spec).every(key => allowed.has(key));
 }
 
 export function isExpectedDirectConvertSpecV1(
@@ -3050,6 +3234,7 @@ async function loadCreationModelV1(
 			return { outcome: capabilities };
 		}
 		assertCreationCapabilities(capabilities.envelope.result, requireApply, capabilityErrorCode);
+		ports._capabilityAdvertisements = capabilities.envelope.result as CapabilityAdvertisementV1[];
 	}
 	const contextRequest = {
 		contractVersion: 1,
@@ -4398,6 +4583,7 @@ function convenienceMapping(command: string, spec?: Record<string, unknown>): {
 		'task.pin': ['task.pinned-state', 'set-pinned'],
 		'task.unpin': ['task.pinned-state', 'set-pinned'],
 		'task.delete': ['task.delete', 'delete'],
+		'task.adopt': ['task.adopt', 'adopt-inline'],
 		'task.convert': ['task.convert', 'convert'],
 		'task.relocate': ['task.inline-relocate', 'relocate-inline'],
 		'reminder.add': ['task.reminder-item', 'add'],
@@ -4634,6 +4820,7 @@ function localFailure(
 		'DESCRIPTION_TARGET_NOT_FOUND',
 		'DESCRIPTION_RESOLUTION_INCOMPLETE',
 		'DIRECT_CAPABILITY_UNAVAILABLE',
+		'FILTER_QUERY_CAPABILITY_UNAVAILABLE',
 		'DIRECT_REMINDER_ITEM_AMBIGUOUS',
 		'DIRECT_REMINDER_ITEM_NOT_FOUND',
 		'DIRECT_REMINDER_ITEMS_INCOMPLETE',
@@ -4933,6 +5120,7 @@ function localErrorReason(code: string): string {
 		COMPACT_UPDATE_SELECTOR_REQUIRED: 'Choose exactly one task target with --id or --description.',
 		COMPACT_VALUE_QUOTE_REQUIRED: 'Quote every raw value with straight ASCII double quotes.',
 		DIRECT_CAPABILITY_UNAVAILABLE: 'The capabilities required by this direct task operation are unavailable.',
+		FILTER_QUERY_CAPABILITY_UNAVAILABLE: 'The live Runtime does not advertise native saved-filter evaluation.',
 		DIRECT_CONVERT_FLAGS_INVALID: 'Use --template only with --to file, and --line only with --to inline.',
 		DIRECT_CONVERT_TO_INVALID: 'Choose exactly one conversion direction with --to file or --to inline.',
 		DIRECT_DELETE_ASSIGNMENT_UNAVAILABLE: 'Direct task deletion accepts only one exact selector and --preview-only.',

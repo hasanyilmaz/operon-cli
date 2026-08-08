@@ -38,6 +38,7 @@ const READ_COMMANDS = new Set([
 	'entity.resolve',
 	'task.get',
 	'tasks.query',
+	'tasks.filter-query',
 	'tasks.finder',
 	'relationships.get',
 	'context.build',

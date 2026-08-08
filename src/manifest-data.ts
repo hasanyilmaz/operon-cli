@@ -128,6 +128,10 @@ export const OPERON_CLI_MUTATION_CAPABILITIES_V1 = Object.freeze({
 		preview: 'tasks.delete.preview',
 		apply: 'tasks.delete.apply',
 	}),
+	'task.adopt': Object.freeze({
+		preview: 'tasks.adopt.preview',
+		apply: 'tasks.adopt.apply',
+	}),
 });
 
 export const OPERON_CLI_RUNTIME_CAPABILITIES_V1 = Object.freeze({
@@ -146,6 +150,7 @@ export const OPERON_CLI_CONVENIENCE_MUTATIONS_V1 = Object.freeze({
 	'task.unpin': 'task.pinned-state',
 	'task.transition': 'task.transition',
 	'task.delete': 'task.delete',
+	'task.adopt': 'task.adopt',
 	'task.convert': 'task.convert',
 	'task.relocate': 'task.inline-relocate',
 	'reminder.add': 'task.reminder-item',
@@ -168,6 +173,7 @@ export const OPERON_CLI_CONVENIENCE_TARGET_POLICIES_V1 = Object.freeze({
 	'task.unpin': 'required',
 	'task.transition': 'required',
 	'task.delete': 'required',
+	'task.adopt': 'forbidden',
 	'task.convert': 'required',
 	'task.relocate': 'required',
 	'reminder.add': 'required',
@@ -225,6 +231,7 @@ const OPERON_CLI_RUNTIME_SCHEMAS_V1 = Object.freeze({
 	'entity.resolve': { requestSchema: 'entity-resolve-request', resultSchema: 'entity-resolution-result' },
 	'task.get': { requestSchema: 'task-get-request', resultSchema: 'task-get-result' },
 	'tasks.query': { requestSchema: 'task-query-request', resultSchema: 'task-query-result' },
+	'tasks.filter-query': { requestSchema: 'task-filter-query-request', resultSchema: 'task-filter-query-result' },
 	'tasks.finder': { requestSchema: 'task-finder-request', resultSchema: 'task-finder-result' },
 	'relationships.get': { requestSchema: 'relationship-request', resultSchema: 'relationship-result' },
 	'context.build': { requestSchema: 'context-request', resultSchema: 'context-pack' },
@@ -433,6 +440,7 @@ export function createCliManifestBaseV1(version: string) {
 					'health',
 					'task.get',
 					'tasks.query',
+					'tasks.filter-query',
 					'context.build',
 				],
 				ordinaryFrames: 'sequential',

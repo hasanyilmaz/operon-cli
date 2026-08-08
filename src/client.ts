@@ -672,6 +672,7 @@ export function isPersistentReadCommandV1(command: CliCommandV1): boolean {
 		|| command === 'entity.resolve'
 		|| command === 'task.get'
 		|| command === 'tasks.query'
+		|| command === 'tasks.filter-query'
 		|| command === 'tasks.finder'
 		|| command === 'relationships.get'
 		|| command === 'context.build'
@@ -691,8 +692,8 @@ function runSpawnTransport(
 	return (ports.runProcess ?? runObsidianProcessV1)(
 		resolveObsidianExecutableV1(options.obsidianBin, { cwd: canonicalVaultPath }),
 		[
-			`vault=${path.basename(canonicalVaultPath)}`,
 			handler,
+			`vault=${path.basename(canonicalVaultPath)}`,
 			`requestToken=${requestToken}`,
 		],
 		{

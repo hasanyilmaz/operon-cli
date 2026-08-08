@@ -68,7 +68,7 @@ try {
 		banner: { js: '#!/usr/bin/env node' },
 		define: {
 			__OPERON_CLI_PACKAGE_NAME__: JSON.stringify('@stratejya/operon-cli'),
-			__OPERON_CLI_VERSION__: JSON.stringify('1.0.9'),
+			__OPERON_CLI_VERSION__: JSON.stringify('1.1.0'),
 			__OPERON_CLI_PERSISTENT_READ__: 'true',
 			__OPERON_CLI_FRAME_TIMING__: 'false',
 		},

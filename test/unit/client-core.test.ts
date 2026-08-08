@@ -852,6 +852,7 @@ function testInteractiveShellLexingAndCompletion(): void {
 	}
 	assert.deepEqual(completeInteractiveShellLineV1('ta')[0], ['task']);
 	assert.deepEqual(completeInteractiveShellLineV1('task ')[0], [
+		'adopt',
 		'cancel',
 		'complete',
 		'convert',
@@ -1138,6 +1139,7 @@ function testArgumentMatrix(): void {
 	assert.equal(parseCliArgsV1(['entity', 'resolve', '--vault', vault, '--input', '-']).command, 'entity.resolve');
 	assert.equal(parseCliArgsV1(['task', 'get', '--vault', vault, '--id', 'abc1234']).command, 'task.get');
 	assert.equal(parseCliArgsV1(['query', '--vault', vault, '--input', '-']).command, 'tasks.query');
+	assert.equal(parseCliArgsV1(['filter-query', '--vault', vault, '--input', '-']).command, 'tasks.filter-query');
 	assert.equal(parseCliArgsV1(['relationships', '--vault', vault, '--input', '-']).command, 'relationships.get');
 	assert.equal(parseCliArgsV1(['context', '--vault', vault, '--input', '-']).command, 'context.build');
 	assert.equal(parseCliArgsV1(['timer', 'state', '--vault', vault]).command, 'timers.read');
@@ -1410,8 +1412,8 @@ async function testOneShotExecutionAndCleanup(): Promise<void> {
 			assert.equal(calls, 1);
 			assert.equal(seenCwd, realpathSync(vault));
 			assert.deepEqual(seenArgs.slice(0, 2), [
-				`vault=${path.basename(realpathSync(vault))}`,
 				'operon:capabilities',
+				`vault=${path.basename(realpathSync(vault))}`,
 			]);
 			assert.match(seenArgs[2], /^requestToken=[A-Za-z0-9_-]{32}$/u);
 			const token = seenArgs[2].slice('requestToken='.length);
@@ -1896,6 +1898,7 @@ async function testOneShotPersistentReadRouting(): Promise<void> {
 		'entity.resolve',
 		'task.get',
 		'tasks.query',
+		'tasks.filter-query',
 		'tasks.finder',
 		'relationships.get',
 		'timers.read',
@@ -2437,6 +2440,14 @@ function testHumanRendererCoverage(): void {
 	assert.match(queryText, /… 1 more items omitted/u);
 	assert.match(queryText, /More results are available/u);
 	assert.doesNotMatch(queryText, /PRIVATE_CURSOR_SENTINEL/u);
+	const filterQueryText = renderHumanV1(successEnvelope('tasks.filter-query', {
+		ok: true,
+		tasks: [task],
+		page: { returnedCount: 1, actualCount: 1, asOf: '2026-08-08T12:00:00Z' },
+		truncations: [],
+	}));
+	assert.match(filterQueryText, /Operon saved filter query: 1\/1 tasks/u);
+	assert.match(filterQueryText, /abc1234/u);
 
 	const relationshipsText = renderHumanV1(successEnvelope('relationships.get', {
 		ok: true,

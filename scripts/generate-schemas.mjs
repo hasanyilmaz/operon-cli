@@ -27,7 +27,7 @@ try {
 	}
 	assert.equal(copied.size, 16, 'Generated schema inventory must contain 16 files.');
 	const manifest = JSON.parse(await readFile(path.join(generatedRoot, 'schema-manifest.json'), 'utf8'));
-	assert.equal(manifest.aggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+assert.equal(manifest.aggregateSha256, 'd1ade3d9214c5ad06f3731388c15751d240993045e124da39f09f1a0ba099c4e');
 	if (mode === '--check') {
 		await assertTreesEqual(generatedRoot, targetRoot);
 	} else {

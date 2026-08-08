@@ -48,6 +48,7 @@ export function renderHumanWithOptionsV1(
 		case 'entity.resolve': lines = renderEntityResolution(result); break;
 		case 'task.get': lines = renderTaskGet(result); break;
 		case 'tasks.query': lines = renderTaskQuery(result); break;
+		case 'tasks.filter-query': lines = renderTaskFilterQuery(result); break;
 		case 'tasks.finder': lines = renderTaskFinder(result); break;
 		case 'relationships.get': lines = renderRelationships(result); break;
 		case 'context.build': lines = renderContext(result); break;
@@ -227,6 +228,20 @@ function renderTaskQuery(result: Record<string, unknown>): string[] {
 	const page = record(result.page);
 	const lines = [
 		`Operon query: ${number(page.returnedCount)}/${number(page.actualCount)} tasks`,
+		`As of: ${safe(page.asOf, LABEL_LIMIT)}`,
+		'ID | Task | Status | Priority | Due | Source',
+	];
+	appendTaskRows(lines, tasks);
+	if (page.nextCursor !== undefined) lines.push('More results are available; use --json to continue with the returned cursor.');
+	return lines;
+}
+
+function renderTaskFilterQuery(result: Record<string, unknown>): string[] {
+	if (result.ok === false) return failureLines('Operon saved filter query', result);
+	const tasks = records(result.tasks);
+	const page = record(result.page);
+	const lines = [
+		`Operon saved filter query: ${number(page.returnedCount)}/${number(page.actualCount)} tasks`,
 		`As of: ${safe(page.asOf, LABEL_LIMIT)}`,
 		'ID | Task | Status | Priority | Due | Source',
 	];

@@ -44,7 +44,7 @@ try {
 		schemas.push({ file: fileName, ...(typeof document?.$id === 'string' ? { id: document.$id } : {}), sha256 });
 	}
 	const runtimeSchemaManifest = JSON.parse(await readFile(path.join(schemaRoot, 'schema-manifest.json'), 'utf8'));
-	assert.equal(runtimeSchemaManifest.aggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+	assert.equal(runtimeSchemaManifest.aggregateSha256, 'd1ade3d9214c5ad06f3731388c15751d240993045e124da39f09f1a0ba099c4e');
 	const schemaEntrypoints = [...runtimeSchemaManifest.entrypoints, ...CLI_SCHEMA_ENTRYPOINTS_V1].map(entrypoint => {
 		const [documentId] = entrypoint.ref.split('#', 1);
 		const found = documents.get(documentId);
@@ -65,7 +65,7 @@ try {
 		schemas,
 		schemaEntrypoints,
 	);
-	assert.equal(manifest.contractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b');
+	assert.equal(manifest.contractDigest, '79ba528ea0f8e249cb9583bc0d9b91bba6293d7b2531051fbecd25c39820c9ef');
 	const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 	const target = path.join(projectRoot, 'cli-manifest-v1.json');
 	if (mode === '--write') await writeFile(target, serialized, 'utf8');

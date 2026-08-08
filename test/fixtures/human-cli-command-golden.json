@@ -35,6 +35,7 @@
     { "id": "inspect-timer-state", "category": "inspect", "commandId": "timers.read", "route": "runtime", "displayCommand": "operon timer state --consistency \"best-effort\"", "behavior": "read-only", "confirmation": "none" },
     { "id": "inspect-query-help", "category": "inspect", "commandId": "tasks.query", "route": "runtime", "displayCommand": "operon query --help", "behavior": "read-only", "confirmation": "none" },
     { "id": "inspect-context-help", "category": "inspect", "commandId": "context.build", "route": "runtime", "displayCommand": "operon context --help", "behavior": "read-only", "confirmation": "none" },
+	{ "id": "adopt-open-checkbox", "category": "create", "commandId": "task.adopt", "route": "convenience", "displayCommand": "operon task adopt --file \"Inbox.md\" --line \"12\"", "behavior": "auto-apply", "confirmation": "none" },
 
     { "id": "configured-default-representation", "category": "create", "commandId": "task.create", "route": "convenience", "compactCaseId": "configured-default-representation", "displayCommand": "operon task create \"Test task\" status::\"EXACT LIVE PIPELINE.STATUS\"", "behavior": "auto-apply", "confirmation": "none", "requiresLiveSubstitution": true },
     { "id": "explicit-inline-without-fields", "category": "create", "commandId": "task.create", "route": "convenience", "compactCaseId": "explicit-inline-without-fields", "displayCommand": "operon task create inline \"Test task\"", "behavior": "auto-apply", "confirmation": "none" },
