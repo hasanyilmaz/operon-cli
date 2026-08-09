@@ -15,7 +15,7 @@ import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NPM_VERSION = '11.12.1';
-const PRIVATE_WORKFLOW_SHA256 = 'edd291595029321b5b541f40a4c4d83458be10b25fe1248b90b5b29e8dab7b3c';
+const PRIVATE_WORKFLOW_SHA256 = '689171f9a4a26ec5cd2aee36ae3594448a8f2a207a5eb8e41b281c1b9d7192e2';
 const NPM_TARBALL = 'https://registry.npmjs.org/npm/-/npm-11.12.1.tgz';
 const NPM_INTEGRITY = 'sha512-zcoUuF1kezGSAo0CqtvoLXX3mkRqzuqYdL6Y5tdo8g69NVV3CkjQ6ZBhBgB4d7vGkPcV6TcvLi3GRKPDFX+xTA==';
 const LEGACY = Object.freeze({

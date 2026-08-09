@@ -13,7 +13,7 @@ import {
 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const RELEASE_WORKFLOW_SHA256 = 'eb07f373abf20e119e513ceaf5e4e53a335dbe01495812a2f3fb679a817ff227';
+const RELEASE_WORKFLOW_SHA256 = '7b1bc300d8cfbaade27ffda8f689d9b57142f888d05f532e42cb1336dd9e70fc';
 const ALLOWED_ACTIONS = new Set([
 	'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
 	'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
