@@ -6,24 +6,24 @@ export const OPERON_CLI_RELEASE_V1 = Object.freeze({
 	distTag: 'latest',
 	registry: 'https://registry.npmjs.org/',
 	tarball: Object.freeze({
-		bytes: 218_843,
-		sha256: '7e9c5de7feaaeb8423bebb41707f131ad12eb48e69b5879cf4204710eca7b17e',
-		sha512: 'xZtzaLPNXbOYNgAzQT73BU+8HHG+tjqfgySE5L56+lAyjU2CzSg6FHwB2JYSToypRh0kh6fDtfWTnZvtOOghCA==',
+		bytes: 237_750,
+		sha256: 'e95338275ea0e7c921303c39c94362d49c6261d50354a2095b3e2b30ba51dd1d',
+		sha512: '7CSYIpxQdX9Obb4x/2MQbt4sVe2TpQFSmTxYUg1AqBpjdnEgtirwctJtoeZLhEXgOQStVgCwIM5IQeHRCppg4g==',
 	}),
-	inventoryEntries: 41,
+	inventoryEntries: 48,
 	executable: Object.freeze({
-		bytes: 527_264,
-		sha256: '64253cc966c1ae997ab07625efc053f5bf4e31eecdb9b720c55a447b7179ac6e',
+		bytes: 572_243,
+		sha256: 'b2c62c213aa8a3d23995c7676b32eb184cd88e5092324821b9e5fcbb32e79e19',
 		mode: 0o755,
 	}),
 	manifest: Object.freeze({
-		bytes: 52_507,
-		sha256: '7ff41835609ac34b0658751f264270925fdc93dada3bbfca67e3bbc0c181aca9',
+		bytes: 60_662,
+		sha256: '2bbf7a6d49a612d6b9b9496ba2d6539a33bcc4f7eedc8c7f2421239905458a67',
 		mode: 0o644,
 	}),
-	schemas: 'ec36c956b6ce8d0c25a0e692cf2a52ccbab01f7a2706ad1d7863fd3cbabfa663',
-	declarations: 'd427b4e2f116ce856dd8114238209b5a3f6b3f5900060596357a71483a21e709',
-	runtimeV1Digest: '79ba528ea0f8e249cb9583bc0d9b91bba6293d7b2531051fbecd25c39820c9ef',
+	schemas: 'dc58777402989717d8b5c03cf1eb5d79da8297bfc751c87f9de506f69d6aaf9f',
+	declarations: '074b16ccef6a029b78b236daae215e799931f0b5251862ddfcc174b63a4def90',
+	runtimeV1Digest: 'daaa7cce4b8ada5fd6d0a90a6676be887e854998f1d2ea4f23d7228be795a7ee',
 });
 
 export const OPERON_CLI_PUBLISH_NPM_V1 = Object.freeze({
