@@ -30,7 +30,7 @@ const projection = {
 	kind: 'operon-cli-plugin-snapshot',
 	origin: {
 		repository: 'https://github.com/hasanyilmaz/operon',
-		pluginCheckpointCommit: '1e63f986057916bb3d66365a72346314946326a7',
+		pluginCheckpointCommit: 'bc3e34f2e7b1acb6f7e52a9f481df295dc179f98',
 		pluginTreeOid: 'c5467b52254c06a0a35bec38ec5d3d8119d718ea',
 		contractSourceTreeOid: 'b08b9c9ce2d60a00beb5ed312d28ba571e968942',
 		publicTypeSourceTreeOid: '7f86bf8212e6a58fe9dd44abd9818cada542907f',

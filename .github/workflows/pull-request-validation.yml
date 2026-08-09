@@ -98,7 +98,7 @@ jobs:
       - name: Validate exact Windows pair
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
         env:
-          OPERON_PLUGIN_CANDIDATE_SHA: 1e63f986057916bb3d66365a72346314946326a7
+          OPERON_PLUGIN_CANDIDATE_SHA: bc3e34f2e7b1acb6f7e52a9f481df295dc179f98
         run: |
           $cliSha = git rev-parse HEAD
           node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run validate:windows:pair -- "$env:OPERON_PLUGIN_CANDIDATE_SHA" "$cliSha"

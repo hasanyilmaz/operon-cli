@@ -397,7 +397,7 @@ export function createCliManifestBaseV1(version: string) {
 			taskWorkflowsV1: {
 				extensionId: 'task-workflows-v1',
 				contractVersion: 1,
-				pluginCheckpointCommit: '1e63f986057916bb3d66365a72346314946326a7',
+				pluginCheckpointCommit: 'bc3e34f2e7b1acb6f7e52a9f481df295dc179f98',
 				baseContractDigest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
 				baseSchemaManifestAggregateSha256: '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
 				aggregateSha256: '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c',
