@@ -27,7 +27,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: npm-staged-release-1.1.0
+  group: npm-staged-release-1.1.1
   cancel-in-progress: false
 
 defaults:
@@ -166,7 +166,7 @@ jobs:
       - name: npm stage publish exact accepted tarball
         run: |
           "${RUNNER_TEMP}/publish-npm/npm" stage publish \
-            "${RUNNER_TEMP}/canonical-candidate/operon-cli-1.1.0.tgz" \
+            "${RUNNER_TEMP}/canonical-candidate/operon-cli-1.1.1.tgz" \
             --tag latest \
             --access public \
             --ignore-scripts \
