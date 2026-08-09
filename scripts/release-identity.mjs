@@ -6,14 +6,14 @@ export const OPERON_CLI_RELEASE_V1 = Object.freeze({
 	distTag: 'latest',
 	registry: 'https://registry.npmjs.org/',
 	tarball: Object.freeze({
-		bytes: 218_845,
-		sha256: 'f3ac7e1d6411c1d7068d101d5394ffb2b022174c8e65210b3791bee844f908fa',
-		sha512: 'SBx5uGqpXaQMo4n979J7RuNenjv06L8660Qs1E353GwfUcAA8Kz7hOhIsw7yrg9mfLGtd9Bzbx5sTZrCiGTPuA==',
+		bytes: 218_843,
+		sha256: '7e9c5de7feaaeb8423bebb41707f131ad12eb48e69b5879cf4204710eca7b17e',
+		sha512: 'xZtzaLPNXbOYNgAzQT73BU+8HHG+tjqfgySE5L56+lAyjU2CzSg6FHwB2JYSToypRh0kh6fDtfWTnZvtOOghCA==',
 	}),
 	inventoryEntries: 41,
 	executable: Object.freeze({
 		bytes: 527_264,
-		sha256: 'a942782d7a6af635be1b51d07b60ce2beca90e2179c80c5f62bfbfc9235b6b64',
+		sha256: '64253cc966c1ae997ab07625efc053f5bf4e31eecdb9b720c55a447b7179ac6e',
 		mode: 0o755,
 	}),
 	manifest: Object.freeze({
