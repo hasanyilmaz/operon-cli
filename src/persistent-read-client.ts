@@ -12,7 +12,7 @@ import { release } from 'node:os';
 import path from 'node:path';
 
 import { CONTRACT_LIMITS_V1 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/primitives';
-import type { CliInvocationV1 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/cli';
+import type { RuntimeCliInvocationV1 } from './runtime-contract-compatibility';
 import {
 	type CanonicalVaultFenceV1,
 	assertCanonicalVaultFenceV1,
@@ -338,7 +338,7 @@ export class WindowsBrokerClientV1 {
 		return new WindowsBrokerClientV1(connection, options.signal);
 	}
 
-	async stage(invocation: CliInvocationV1): Promise<{
+	async stage(invocation: RuntimeCliInvocationV1): Promise<{
 		requestToken: string;
 		stagingReceipt: string;
 	}> {

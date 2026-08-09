@@ -18,6 +18,8 @@ const groups = {
 	contractSource: aggregate(files.filter(item => item.path.startsWith('src/agent-runtime/contracts/v1/'))),
 	publicTypeSource: aggregate(files.filter(item => item.path.startsWith('src/agent-runtime/public/v1/'))),
 	runtimeSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/v1/'))),
+	taskWorkflowExtensionSource: aggregate(files.filter(item => item.path.startsWith('src/agent-runtime/extensions/task-workflows-v1/'))),
+	taskWorkflowExtensionSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/extensions/task-workflows-v1/'))),
 	temporalCodecs: aggregate(files.filter(item => item.path.startsWith('src/core/'))),
 	vaultIdentity: aggregate(files.filter(item => item.path.endsWith('/vault-path-identity.ts'))),
 };
@@ -28,16 +30,25 @@ const projection = {
 	kind: 'operon-cli-plugin-snapshot',
 	origin: {
 		repository: 'https://github.com/hasanyilmaz/operon',
-		pluginCheckpointCommit: '1eb694e99bac1276647d22fe2cf29e4908c2a2de',
-		pluginTreeOid: 'd2ae12e584dfdf542b7e131b3340437a6ea08335',
-		contractSourceTreeOid: 'b693fca9ce0920100d29a01b9a5068e9202ca95e',
-		publicTypeSourceTreeOid: '680bc193f5b59ffe2dfc09507f014d2e63350571',
-		runtimeSchemaTreeOid: '0bc4a6ef38dc5ac87da5c6ac98171f6b870f7d45',
+		pluginCheckpointCommit: '1e63f986057916bb3d66365a72346314946326a7',
+		pluginTreeOid: 'c5467b52254c06a0a35bec38ec5d3d8119d718ea',
+		contractSourceTreeOid: 'b08b9c9ce2d60a00beb5ed312d28ba571e968942',
+		publicTypeSourceTreeOid: '7f86bf8212e6a58fe9dd44abd9818cada542907f',
+		runtimeSchemaTreeOid: 'bd2175490f0357c336603ce7d56a06b20a8b1491',
+		taskWorkflowExtensionSourceTreeOid: '52212124a7ee6b66ae50e0386c54a39a1ec17c3a',
+		taskWorkflowExtensionSchemaTreeOid: 'b2207bb0c7c46754d6ddab24b59834cf70d2e2c3',
 	},
 	runtimeV1: {
 		contractVersion: 1,
-		contractDigest: '79ba528ea0f8e249cb9583bc0d9b91bba6293d7b2531051fbecd25c39820c9ef',
-		schemaAggregateSha256: 'd1ade3d9214c5ad06f3731388c15751d240993045e124da39f09f1a0ba099c4e',
+		contractDigest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
+		schemaAggregateSha256: '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
+	},
+	extensions: {
+		taskWorkflowsV1: {
+			extensionId: 'task-workflows-v1',
+			contractVersion: 1,
+			aggregateSha256: '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c',
+		},
 	},
 	toolchain: {
 		node: '24.18.0',
@@ -58,7 +69,7 @@ const document = {
 	...projection,
 	snapshotAggregateSha256: sha256(Buffer.from(JSON.stringify(projection), 'utf8')),
 };
-assert.equal(files.length, 38, 'Snapshot inventory must contain exactly 38 files.');
+assert.equal(files.length, 46, 'Snapshot inventory must contain exactly 46 files.');
 const runtimeSchemaManifest = JSON.parse(await readFile(path.join(
 	snapshotRoot,
 	'contracts',
@@ -67,6 +78,26 @@ const runtimeSchemaManifest = JSON.parse(await readFile(path.join(
 	'schema-manifest.json',
 ), 'utf8'));
 assert.equal(runtimeSchemaManifest.aggregateSha256, document.runtimeV1.schemaAggregateSha256);
+const taskWorkflowExtensionManifest = JSON.parse(await readFile(path.join(
+	snapshotRoot,
+	'contracts',
+	'agent-runtime',
+	'extensions',
+	'task-workflows-v1',
+	'extension-manifest.json',
+), 'utf8'));
+assert.equal(
+	taskWorkflowExtensionManifest.baseContractDigest,
+	document.runtimeV1.contractDigest,
+);
+assert.equal(
+	taskWorkflowExtensionManifest.baseSchemaManifestAggregateSha256,
+	document.runtimeV1.schemaAggregateSha256,
+);
+assert.equal(
+	taskWorkflowExtensionManifest.aggregateSha256,
+	document.extensions.taskWorkflowsV1.aggregateSha256,
+);
 const serialized = `${JSON.stringify(document, null, 2)}\n`;
 if (mode === '--write') {
 	await writeFile(manifestPath, serialized, 'utf8');

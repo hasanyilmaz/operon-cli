@@ -2,6 +2,7 @@ import { isAbsolute, join, relative } from 'node:path';
 import { realpathSync } from 'node:fs';
 
 import { validateVaultRelativePathV1 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
+import type { AdoptTaskPreviewIntentV1 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
 import type { GuidedMutationIntentV1 } from './guided-maintenance';
 import { readInputFileSafelyV1 } from './protocol';
 import { sanitizeTerminalTextV1 } from './terminal-text';
@@ -41,20 +42,21 @@ export function compileDirectAdoptIntentV1(options: {
 	const statusId = options.statusId === undefined
 		? undefined
 		: directAdoptStatusIdV1(options.statusId);
+	const spec: AdoptTaskPreviewIntentV1 = {
+		operation: 'adopt-inline',
+		source: {
+			filePath,
+			lineNumber: line - 1,
+			expectedLine,
+		},
+		...(statusId ? { statusId } : {}),
+		...(options.reopen ? { terminalSourcePolicy: 'reopen' } : {}),
+	};
 	return {
 		contractVersion: 1,
 		kind: 'mutation-intent',
 		reason: 'The user requested adoption of one exact Markdown checkbox as an Operon task.',
-		spec: {
-			operation: 'adopt-inline',
-			source: {
-				filePath,
-				lineNumber: line - 1,
-				expectedLine,
-			},
-			...(statusId ? { statusId } : {}),
-			...(options.reopen ? { terminalSourcePolicy: 'reopen' } : {}),
-		},
+		spec: { ...spec },
 	};
 }
 

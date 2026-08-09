@@ -78,13 +78,11 @@ export type CreateTaskTargetV1 = {
     mode: 'configured-default';
     filePath?: never;
     templateId?: string;
-    identityPlaceholderPolicy?: 'resolve-operon-id-v1';
 } | {
     representation: 'file';
     mode: 'exact-path';
     filePath: string;
     templateId?: string;
-    identityPlaceholderPolicy?: 'resolve-operon-id-v1';
 };
 export type CreateFieldItemV1 = {
     kind: 'text';
@@ -333,35 +331,8 @@ export interface DeleteTaskSpecV1 {
     mode: 'delete-exact-task';
     cascade: false;
 }
-export interface AdoptTaskSpecV1 {
-    operation: 'adopt-inline';
-    source: {
-        filePath: string;
-        lineNumber: number;
-        expectedLine: string;
-    };
-    statusId?: string;
-    terminalSourcePolicy?: 'reopen';
-    /** Runtime-sealed identity and exact source/result proof. */
-    operonId?: string;
-    resolvedStatusId?: string;
-    resultingLine?: string;
-    sourceDigest?: string;
-    resultDigest?: string;
-    locator?: Extract<TaskSourceLocatorV1, {
-        representation: 'inline';
-    }>;
-}
-export type AdoptTaskPreviewIntentV1 = Omit<AdoptTaskSpecV1, 'operonId' | 'resolvedStatusId' | 'resultingLine' | 'sourceDigest' | 'resultDigest' | 'locator'> & {
-    operonId?: never;
-    resolvedStatusId?: never;
-    resultingLine?: never;
-    sourceDigest?: never;
-    resultDigest?: never;
-    locator?: never;
-};
-export type MutationSpecV1 = CreateTaskSpecV1 | UpdateTaskSpecV1 | UpdateTaskBatchSpecV1 | UpdateTaskRecurrenceSpecV1 | ReplaceTaskRelationshipsSpecV1 | ReminderItemSpecV1 | TransitionTaskSpecV1 | PinnedTaskStateSpecV1 | TimerControlSpecV1 | TimerSessionSpecV1 | ConvertTaskSpecV1 | RelocateInlineTaskSpecV1 | AdoptTaskSpecV1 | DeleteTaskSpecV1;
-export type MutationPreviewSpecV1 = MutationSpecV1 | AdoptTaskPreviewIntentV1 | RelocateInlineTaskPreviewIntentV1;
+export type MutationSpecV1 = CreateTaskSpecV1 | UpdateTaskSpecV1 | UpdateTaskBatchSpecV1 | UpdateTaskRecurrenceSpecV1 | ReplaceTaskRelationshipsSpecV1 | ReminderItemSpecV1 | TransitionTaskSpecV1 | PinnedTaskStateSpecV1 | TimerControlSpecV1 | TimerSessionSpecV1 | ConvertTaskSpecV1 | RelocateInlineTaskSpecV1 | DeleteTaskSpecV1;
+export type MutationPreviewSpecV1 = MutationSpecV1 | RelocateInlineTaskPreviewIntentV1;
 export interface MutationPreviewRequestV1 {
     contractVersion: typeof CONTRACT_VERSION_V1;
     requestId: string;
@@ -405,11 +376,6 @@ export type SealedCreateEffectV1 = {
     plannedSourceDigest: string;
     templateId?: string;
     templateDigest?: string;
-    templateIdentityAllocations?: Array<{
-        occurrence: number;
-        suffix?: string;
-        operonId: string;
-    }>;
     resolvedParentOperonId?: string;
     resolvedRelatedOperonIds: string[];
     resolvedDependencies?: Array<{

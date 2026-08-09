@@ -143,6 +143,92 @@ test('JSONL read group runs 2-8 allowlisted children and writes ordered child re
 	}
 });
 
+test('JSONL filter-query group preflights once and reuses exact advertisements', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-session-filter-query-'));
+	const vault = path.join(root, 'vault');
+	mkdirSync(vault, { recursive: true, mode: 0o700 });
+	const output = captureOutput();
+	const calls: string[] = [];
+	const batchCounts: number[] = [];
+	try {
+		const exitCode = await runJsonlSessionV1({
+			input: Readable.from([`${JSON.stringify({
+				id: 'filter-group',
+				reads: [
+					{
+						id: 'filter',
+						argv: ['filter-query', '--vault', vault, '--input', '-', '--json'],
+						input: { contractVersion: 1, requestId: 'filter-request', kind: 'task-filter-query', consistency: 'live-verified', filterSetId: 'saved-filter' },
+					},
+					{ id: 'health', argv: ['health', '--vault', vault, '--json'] },
+				],
+			})}\n`]),
+			output,
+			commandPorts: {
+				_persistentReadTransport: {
+					beginBatch(count: number) { batchCounts.push(count); },
+					consumeLastEvidence: () => 'persistent',
+					close() {},
+				} as never,
+			},
+			runCommand: async (argv, ports) => {
+				calls.push(argv[0] ?? '');
+				if (argv[0] === 'capabilities') return runtimeCapabilitiesOutcome('available');
+				if (argv[0] === 'filter-query') {
+					assert.equal(ports?._capabilityAdvertisements?.[0]?.id, 'tasks.filter-query');
+				}
+				return localOutcome(argv[0] ?? '', calls.length);
+			},
+		});
+		assert.equal(exitCode, 0);
+		assert.equal(calls.filter(command => command === 'capabilities').length, 1);
+		assert.deepEqual(batchCounts, [2]);
+		assert.deepEqual(output.lines().map(line => line.id), ['filter', 'health']);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('JSONL filter-query preflight failure is reused without child dispatch', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-session-filter-preflight-failure-'));
+	const vault = path.join(root, 'vault');
+	mkdirSync(vault, { recursive: true, mode: 0o700 });
+	const output = captureOutput();
+	const calls: string[] = [];
+	const batchCounts: number[] = [];
+	try {
+		await runJsonlSessionV1({
+			input: Readable.from([`${JSON.stringify({
+				id: 'failed-filter-group',
+				reads: [
+					{ id: 'filter', argv: ['filter-query', '--vault', vault, '--input', '-', '--json'], input: {} },
+					{ id: 'health', argv: ['health', '--vault', vault, '--json'] },
+				],
+			})}\n`]),
+			output,
+			commandPorts: {
+				_persistentReadTransport: {
+					beginBatch(count: number) { batchCounts.push(count); },
+					consumeLastEvidence: () => 'persistent',
+					close() {},
+				} as never,
+			},
+			runCommand: async argv => {
+				calls.push(argv[0] ?? '');
+				return argv[0] === 'capabilities'
+					? { ...localOutcome('capabilities', 1), exitCode: 3 }
+					: localOutcome(argv[0] ?? '', calls.length);
+			},
+		});
+		assert.deepEqual(calls, ['capabilities', 'health']);
+		assert.deepEqual(batchCounts, []);
+		assert.deepEqual(output.lines().map(line => line.id), ['filter', 'health']);
+		assert.equal(output.lines()[0]?.exitCode, 3);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
 test('JSONL read group accepts exactly eight children', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-session-group-max-'));
 	const configRoot = path.join(root, 'config');
@@ -1246,6 +1332,34 @@ function localOutcome(command: string, sequence: number): PublicCommandOutcomeV1
 		},
 		human: `result ${sequence}`,
 	};
+}
+
+function runtimeCapabilitiesOutcome(
+	availability: 'available' | 'unavailable',
+): PublicCommandOutcomeV1 {
+	return {
+		exitCode: 0,
+		json: true,
+		envelope: {
+			contractVersion: 1,
+			kind: 'cli-result',
+			requestId: 'session-capabilities',
+			command: 'capabilities',
+			ok: true,
+			vaultIdentity: { expectedMatch: true },
+			compatibility: { selectedApiVersion: 1, selectedContractVersion: 1, selectedCliContract: 1 },
+			cliContract: 1,
+			runtime: { pluginVersion: 'test', apiVersion: 1, contractVersion: 1 },
+			warnings: [],
+			result: [{
+				id: 'tasks.filter-query',
+				mode: 'read',
+				availability,
+				destructive: false,
+			}],
+		},
+		human: '',
+	} as unknown as PublicCommandOutcomeV1;
 }
 
 function captureOutput(): Writable & { text(): string; lines(): Array<Record<string, any>> } {

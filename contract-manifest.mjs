@@ -90,6 +90,7 @@ export function contractProjectionV1(value) {
 			node: value.package?.node,
 		},
 		compatibility: value.compatibility,
+		runtimeExtensions: value.runtimeExtensions,
 		runtimeContracts: value.runtimeContracts,
 		localContracts: value.localContracts,
 		exitCodes: value.exitCodes,

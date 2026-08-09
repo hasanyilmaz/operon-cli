@@ -136,19 +136,43 @@ export function assertCliReceiptV1(receipt, expectedSha) {
 	assert.equal(receipt?.platform, 'win32', 'OPERON_WINDOWS_PAIR_CLI_PLATFORM');
 	assert.equal(receipt?.arch, 'x64', 'OPERON_WINDOWS_PAIR_CLI_ARCH');
 	assert.deepEqual(receipt?.toolchain, { node: EXPECTED_NODE, npm: EXPECTED_NPM }, 'OPERON_WINDOWS_PAIR_CLI_TOOLCHAIN');
-	assert.equal(receipt?.candidate?.inventory, 41, 'OPERON_WINDOWS_PAIR_CLI_INVENTORY');
+	assert.equal(receipt?.candidate?.inventory, 48, 'OPERON_WINDOWS_PAIR_CLI_INVENTORY');
 	assert.match(receipt?.candidate?.sha256 ?? '', /^[0-9a-f]{64}$/u, 'OPERON_WINDOWS_PAIR_CLI_TARBALL_SHA');
 	assert.equal(receipt?.hosted?.assertions, 4, 'OPERON_WINDOWS_PAIR_CLI_HOSTED_ASSERTIONS');
 	assert.equal(receipt?.hosted?.skipped, 0, 'OPERON_WINDOWS_PAIR_CLI_HOSTED_SKIPPED');
 }
 
 async function decoderParityV1(pluginCheckout, cliRoot) {
-	const pluginDecoder = await readFile(path.join(pluginCheckout, 'src', 'agent-runtime', 'contracts', 'v1', 'decode.ts'));
-	const cliDecoder = await readFile(path.join(cliRoot, 'vendor', 'operon-plugin-v1', 'src', 'agent-runtime', 'contracts', 'v1', 'decode.ts'));
-	const pluginSha256 = createHash('sha256').update(pluginDecoder).digest('hex');
-	const cliSha256 = createHash('sha256').update(cliDecoder).digest('hex');
-	assert.equal(cliSha256, pluginSha256, 'OPERON_WINDOWS_PAIR_DECODER_PARITY_MISMATCH');
-	return { status: 'passed', sha256: pluginSha256 };
+	const files = [
+		'src/agent-runtime/contracts/v1/decode.ts',
+		'src/agent-runtime/extensions/task-workflows-v1/contracts.ts',
+		'src/agent-runtime/extensions/task-workflows-v1/decode.ts',
+		'contracts/agent-runtime/extensions/task-workflows-v1/extension-manifest.json',
+	];
+	const hashes = {};
+	for (const relative of files) {
+		const pluginBytes = await readFile(path.join(pluginCheckout, relative));
+		const cliBytes = await readFile(path.join(cliRoot, 'vendor', 'operon-plugin-v1', relative));
+		const pluginSha256 = createHash('sha256').update(pluginBytes).digest('hex');
+		const cliSha256 = createHash('sha256').update(cliBytes).digest('hex');
+		assert.equal(cliSha256, pluginSha256, `OPERON_WINDOWS_PAIR_CONTRACT_PARITY_MISMATCH:${relative}`);
+		hashes[relative] = pluginSha256;
+	}
+	const extensionManifest = JSON.parse(await readFile(path.join(
+		pluginCheckout,
+		'contracts/agent-runtime/extensions/task-workflows-v1/extension-manifest.json',
+	), 'utf8'));
+	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b', 'OPERON_WINDOWS_PAIR_EXTENSION_BASE_DIGEST');
+	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa', 'OPERON_WINDOWS_PAIR_EXTENSION_BASE_SCHEMA');
+	assert.equal(extensionManifest.aggregateSha256, '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c', 'OPERON_WINDOWS_PAIR_EXTENSION_AGGREGATE');
+	return {
+		status: 'passed',
+		baseDecoderSha256: hashes['src/agent-runtime/contracts/v1/decode.ts'],
+		taskWorkflowsV1: {
+			aggregateSha256: extensionManifest.aggregateSha256,
+			files: hashes,
+		},
+	};
 }
 
 function checkoutExactPluginV1(pluginCheckout, pluginSha) {

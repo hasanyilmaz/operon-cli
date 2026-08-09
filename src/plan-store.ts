@@ -16,17 +16,16 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type {
-	MutationApplyRequestV1,
-	MutationPreviewRequestV1,
-	MutationResultV1,
-	SealedMutationPlanV1,
-} from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
 import {
-	decodeMutationApplyRequestV1,
-	decodeMutationResultV1,
-	decodeSealedMutationPlanV1,
-} from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/decode';
+	admitRuntimeMutationPreviewPlanV1,
+	admitRuntimeMutationResultV1,
+	decodeRuntimeMutationApplyRequestV1,
+	decodeRuntimeSealedMutationPlanV1,
+	type RuntimeMutationApplyRequestV1,
+	type RuntimeMutationPreviewRequestV1,
+	type RuntimeMutationResultV1,
+	type RuntimeSealedMutationPlanV1,
+} from './runtime-contract-compatibility';
 import {
 	ensureOwnerOnlyDirectory,
 	operonCliConfigRootV1,
@@ -100,17 +99,17 @@ export interface StoredMutationPlanV1 {
 	profile?: string;
 	clientInstanceId: string;
 	idempotencyKey: string;
-	plan: SealedMutationPlanV1;
+	plan: RuntimeSealedMutationPlanV1;
 	createdAt: string;
 	expiresAt: string;
-	applyRequest?: MutationApplyRequestV1;
+	applyRequest?: RuntimeMutationApplyRequestV1;
 	recoveryStartedAt?: string;
 	recoveryExpiresAt?: string;
 	lastOutcome?: Pick<
-		MutationResultV1,
+		RuntimeMutationResultV1,
 		'status' | 'mutationMayHaveApplied' | 'retryAllowed' | 'ambiguitySource'
 	>;
-	terminalResult?: MutationResultV1;
+	terminalResult?: RuntimeMutationResultV1;
 }
 
 export function storeMutationPlanV1(
@@ -118,12 +117,12 @@ export function storeMutationPlanV1(
 		vaultPath: string;
 		vaultSha256: string;
 		profile?: string;
-		request: MutationPreviewRequestV1;
-		plan: SealedMutationPlanV1;
+		request: RuntimeMutationPreviewRequestV1;
+		plan: RuntimeSealedMutationPlanV1;
 	},
 	root: string = operonCliConfigRootV1(),
 ): StoredMutationPlanV1 {
-	const decodedPlan = decodeSealedMutationPlanV1(input.plan);
+	const decodedPlan = admitRuntimeMutationPreviewPlanV1(input.request, input.plan);
 	if (!decodedPlan.ok) throw new Error('PLAN_MALFORMED');
 	pruneExpiredMutationPlansV1(root);
 	const record: StoredMutationPlanV1 = {
@@ -210,11 +209,12 @@ export function writeStoredPlanV1(
 
 export function markMutationPlanDispatchedV1(
 	record: StoredMutationPlanV1,
-	applyRequest: MutationApplyRequestV1,
+	applyRequest: RuntimeMutationApplyRequestV1,
 	root: string = operonCliConfigRootV1(),
 	now = Date.now(),
 ): StoredMutationPlanV1 {
 	if (record.applyRequest) return record;
+	assertApplyMatchesStoredPlan(applyRequest, record);
 	return withDispatchCapacityLockV1(root, () => {
 		const current = readMutationPlanV1(record.planRef, root, { allowExpired: true, now });
 		if (current.applyRequest) return current;
@@ -249,7 +249,7 @@ export function markMutationPlanDispatchedV1(
 
 export function restoreMutationPlanBeforeDispatchV1(
 	record: StoredMutationPlanV1,
-	applyRequest: MutationApplyRequestV1,
+	applyRequest: RuntimeMutationApplyRequestV1,
 	root: string = operonCliConfigRootV1(),
 ): StoredMutationPlanV1 {
 	return withDispatchCapacityLockV1(root, () => {
@@ -349,7 +349,7 @@ export function buildMutationApplyRequestV1(
 		confirmationToken?: string;
 		now?: string;
 	},
-): MutationApplyRequestV1 {
+): RuntimeMutationApplyRequestV1 {
 	if (record.applyRequest) return record.applyRequest;
 	const confirmationRequired = record.plan.riskLevel === 'destructive'
 		|| record.plan.requiresConfirmation
@@ -383,10 +383,10 @@ export function buildMutationApplyRequestV1(
 			targetDigest: acknowledgementTargetDigest,
 			acknowledgedAt,
 		})),
-	};
+	} as RuntimeMutationApplyRequestV1;
 }
 
-export function confirmationTokenForPlanV1(plan: SealedMutationPlanV1): string {
+export function confirmationTokenForPlanV1(plan: RuntimeSealedMutationPlanV1): string {
 	return createHash('sha256')
 		.update(`operon-confirm-v1\0${plan.planHash}\0${plan.receiptTargetDigest}`, 'utf8')
 		.digest('hex');
@@ -394,10 +394,18 @@ export function confirmationTokenForPlanV1(plan: SealedMutationPlanV1): string {
 
 export function recordMutationOutcomeV1(
 	record: StoredMutationPlanV1,
-	applyRequest: MutationApplyRequestV1,
-	result: MutationResultV1,
+	applyRequest: RuntimeMutationApplyRequestV1,
+	result: RuntimeMutationResultV1,
 	root: string = operonCliConfigRootV1(),
 ): 'discarded' | 'retained' {
+	const admitted = admitRuntimeMutationResultV1(result, applyRequest, {
+		vaultIdentityHash: record.vaultSha256,
+		clientInstanceId: record.clientInstanceId,
+	});
+	if (!admitted.ok || admitted.value.requestId !== applyRequest.requestId) {
+		throw new Error('PLAN_MALFORMED');
+	}
+	result = admitted.value;
 	if (result.status === 'applied' || result.status === 'already-applied') {
 		const recoveryStartedAt = record.recoveryStartedAt ?? new Date().toISOString();
 		writeStoredPlanV1({
@@ -494,10 +502,25 @@ function decodeStoredPlan(value: unknown): StoredMutationPlanV1 {
 		|| (value.lastOutcome !== undefined && !isPlainRecord(value.lastOutcome))
 		|| (value.terminalResult !== undefined && !isPlainRecord(value.terminalResult))
 	) throw new Error('PLAN_MALFORMED');
-	const decodedPlan = decodeSealedMutationPlanV1(value.plan);
+	const decodedPlan = decodeRuntimeSealedMutationPlanV1(value.plan);
 	if (!decodedPlan.ok) throw new Error('PLAN_MALFORMED');
-	if (value.applyRequest !== undefined && !decodeMutationApplyRequestV1(value.applyRequest).ok) {
-		throw new Error('PLAN_MALFORMED');
+	const decodedApply = value.applyRequest === undefined
+		? undefined
+		: decodeRuntimeMutationApplyRequestV1(value.applyRequest);
+	if (decodedApply !== undefined && !decodedApply.ok) throw new Error('PLAN_MALFORMED');
+	if (
+		value.clientInstanceId !== decodedPlan.value.clientInstanceId
+		|| value.idempotencyKey === undefined
+		|| createHash('sha256').update(value.idempotencyKey, 'utf8').digest('hex')
+			!== decodedPlan.value.idempotencyKeyHash
+		|| value.expiresAt !== decodedPlan.value.expiresAt
+	) throw new Error('PLAN_MALFORMED');
+	if (decodedApply?.ok) {
+		assertApplyMatchesStoredPlan(decodedApply.value, {
+			plan: decodedPlan.value,
+			clientInstanceId: value.clientInstanceId,
+			idempotencyKey: value.idempotencyKey,
+		});
 	}
 	if (
 		(value.recoveryStartedAt === undefined) !== (value.recoveryExpiresAt === undefined)
@@ -514,10 +537,14 @@ function decodeStoredPlan(value: unknown): StoredMutationPlanV1 {
 		)
 	) throw new Error('PLAN_MALFORMED');
 	if (value.terminalResult !== undefined) {
-		const decodedResult = decodeMutationResultV1(value.terminalResult);
+		if (!decodedApply?.ok) throw new Error('PLAN_MALFORMED');
+		const decodedResult = admitRuntimeMutationResultV1(value.terminalResult, decodedApply.value, {
+				vaultIdentityHash: String(value.vaultSha256),
+				clientInstanceId: value.clientInstanceId,
+			});
 		if (
 			!decodedResult.ok
-			|| value.applyRequest === undefined
+			|| decodedResult.value.requestId !== decodedApply.value.requestId
 			|| (
 				decodedResult.value.status !== 'applied'
 				&& decodedResult.value.status !== 'already-applied'
@@ -526,12 +553,31 @@ function decodeStoredPlan(value: unknown): StoredMutationPlanV1 {
 		if (
 			!isPlainRecord(value.lastOutcome)
 			|| value.lastOutcome.status !== decodedResult.value.status
+			|| value.lastOutcome.mutationMayHaveApplied !== decodedResult.value.mutationMayHaveApplied
+			|| value.lastOutcome.retryAllowed !== decodedResult.value.retryAllowed
+			|| value.lastOutcome.ambiguitySource !== decodedResult.value.ambiguitySource
+			|| Object.keys(value.lastOutcome).some(key => ![
+				'status', 'mutationMayHaveApplied', 'retryAllowed', 'ambiguitySource',
+			].includes(key))
 		) throw new Error('PLAN_MALFORMED');
 	}
 	return {
 		...(value as unknown as StoredMutationPlanV1),
 		plan: decodedPlan.value,
 	};
+}
+
+function assertApplyMatchesStoredPlan(
+	applyRequest: RuntimeMutationApplyRequestV1,
+	record: Pick<StoredMutationPlanV1, 'plan' | 'clientInstanceId' | 'idempotencyKey'>,
+): void {
+	const decoded = decodeRuntimeMutationApplyRequestV1(applyRequest);
+	if (
+		!decoded.ok
+		|| decoded.value.plan.planHash !== record.plan.planHash
+		|| decoded.value.plan.clientInstanceId !== record.clientInstanceId
+		|| decoded.value.idempotencyKey !== record.idempotencyKey
+	) throw new Error('PLAN_MALFORMED');
 }
 
 function countProtectedRecoveryRecordsV1(

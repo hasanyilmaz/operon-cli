@@ -208,6 +208,10 @@ import type {
 	CliInvocationV1,
 	CliResultEnvelopeV1,
 } from '@stratejya/operon-cli/contracts/v1/cli';
+import type {
+	TaskFilterQueryRequestV1,
+	TaskWorkflowSealedPlanV1,
+} from '@stratejya/operon-cli/contracts/v1/extensions/task-workflows-v1';
 
 declare const health: RuntimeHealthV1;
 declare const request: TaskGetRequestV1;
@@ -237,6 +241,8 @@ const mutationPreviews: DeveloperMutationPreviewInputV1[] = [
 ];
 declare const invocation: CliInvocationV1;
 declare const envelope: CliResultEnvelopeV1;
+declare const filterQuery: TaskFilterQueryRequestV1;
+declare const taskWorkflowPlan: TaskWorkflowSealedPlanV1;
 
 void [
 	health,
@@ -249,6 +255,8 @@ void [
 	mutationPreviews,
 	invocation,
 	envelope,
+	filterQuery,
+	taskWorkflowPlan,
 ];
 `, 'utf8');
 
@@ -343,6 +351,7 @@ void [
 		'@stratejya/operon-cli/contracts/v1',
 		'@stratejya/operon-cli/contracts/v1/developer-api',
 		'@stratejya/operon-cli/contracts/v1/cli',
+		'@stratejya/operon-cli/contracts/v1/extensions/task-workflows-v1',
 		'@stratejya/operon-cli/contracts/v1/capture-agent',
 		'@stratejya/operon-cli/src/agent-runtime/contracts/v1/primitives',
 	]) {

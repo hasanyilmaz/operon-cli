@@ -1,4 +1,4 @@
-import type { CliResultEnvelopeV1 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
+import type { RuntimeCliResultEnvelopeV1 } from './runtime-contract-compatibility';
 import { sanitizeTerminalTextV1 } from './terminal-text';
 
 const ROW_LIMIT = 50;
@@ -9,12 +9,12 @@ const PROCESS_DIAGNOSTIC_LIMIT = 240;
 const LABEL_LIMIT = 48;
 const PATH_LIMIT = 72;
 
-export function renderHumanV1(envelope: CliResultEnvelopeV1): string {
+export function renderHumanV1(envelope: RuntimeCliResultEnvelopeV1): string {
 	return renderHumanWithOptionsV1(envelope);
 }
 
 export function renderHumanWithOptionsV1(
-	envelope: CliResultEnvelopeV1,
+	envelope: RuntimeCliResultEnvelopeV1,
 	options: { suppressMutationRecovery?: boolean } = {},
 ): string {
 	if (!envelope.ok) {
@@ -690,7 +690,7 @@ function appendFreshness(lines: string[], result: Record<string, unknown>): void
 
 function finish(
 	lines: string[],
-	envelope: CliResultEnvelopeV1,
+	envelope: RuntimeCliResultEnvelopeV1,
 	additionalWarnings: Record<string, unknown>[] = [],
 ): string {
 	appendWarningsList(lines, [...envelope.warnings, ...additionalWarnings]);

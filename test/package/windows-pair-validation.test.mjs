@@ -68,19 +68,20 @@ test('pair validator accepts only exact non-release Plugin and CLI evidence', ()
 		platform: 'win32',
 		arch: 'x64',
 		toolchain: { node: 'v24.18.0', npm: '11.12.1' },
-		candidate: { inventory: 41, sha256: '4'.repeat(64) },
+		candidate: { inventory: 48, sha256: '4'.repeat(64) },
 		hosted: { assertions: 4, skipped: 0 },
 	};
 	assert.doesNotThrow(() => assertPluginReceiptV1(pluginReceipt, pluginSha));
 	assert.doesNotThrow(() => assertCliReceiptV1(cliReceipt, cliSha));
 	assert.throws(() => assertPluginReceiptV1({ ...pluginReceipt, releaseEligible: true }, pluginSha));
 	assert.throws(() => assertPluginReceiptV1({ ...pluginReceipt, nativeSummary: { ...pluginReceipt.nativeSummary, skipped: 1 } }, pluginSha));
-	assert.throws(() => assertCliReceiptV1({ ...cliReceipt, candidate: { ...cliReceipt.candidate, inventory: 40 } }, cliSha));
+	assert.throws(() => assertCliReceiptV1({ ...cliReceipt, candidate: { ...cliReceipt.candidate, inventory: 47 } }, cliSha));
 	assert.throws(() => assertCliReceiptV1({ ...cliReceipt, hosted: { assertions: 4, skipped: 1 } }, cliSha));
 });
 
 test('pair workflow is read-only, pinned, and delegates to the canonical pair runner', async () => {
 	const workflow = await readFile(path.join(projectRoot, '.github', 'workflows', 'windows-pair-validation.yml'), 'utf8');
+	const pairRunner = await readFile(path.join(projectRoot, 'scripts', 'operon-validate-windows-pair.mjs'), 'utf8');
 	assert.equal(
 		createHash('sha256').update(workflow).digest('hex'),
 		'95c2a5e2735668b16f8eead05bedf752a9d8cab02964851448456f53a5aa8cac',
@@ -108,6 +109,15 @@ test('pair workflow is read-only, pinned, and delegates to the canonical pair ru
 	for (const match of workflow.matchAll(/uses:\s+([^\s#]+)/gu)) {
 		assert.match(match[1] ?? '', /^[^@\s]+@[0-9a-f]{40}$/u);
 	}
+	for (const requiredIdentity of [
+		'407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
+		'7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
+		'5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c',
+		'src/agent-runtime/contracts/v1/decode.ts',
+		'src/agent-runtime/extensions/task-workflows-v1/contracts.ts',
+		'src/agent-runtime/extensions/task-workflows-v1/decode.ts',
+		'contracts/agent-runtime/extensions/task-workflows-v1/extension-manifest.json',
+	]) assert.ok(pairRunner.includes(requiredIdentity), `missing pair identity: ${requiredIdentity}`);
 });
 
 test('pair tooling remains development-only and does not add a public npm binary', async () => {

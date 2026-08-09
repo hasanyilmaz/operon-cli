@@ -1,6 +1,6 @@
 import { type CapabilityAdvertisementV1, type CapabilityIdV1 } from './capabilities.js';
 import type { CatalogRequestV1, OperonCatalogV1 } from './catalog.js';
-import type { ContextPackV1, ContextRequestV1, EntityResolutionResultV1, EntityResolveRequestV1, RelationshipRequestV1, RelationshipResultV1, TaskGetRequestV1, TaskGetResultV1, TaskFinderRequestV1, TaskFinderResultV1, TaskFilterQueryRequestV1, TaskFilterQueryResultV1, TaskQueryRequestV1, TaskQueryResultV1 } from './context.js';
+import type { ContextPackV1, ContextRequestV1, EntityResolutionResultV1, EntityResolveRequestV1, RelationshipRequestV1, RelationshipResultV1, TaskGetRequestV1, TaskGetResultV1, TaskFinderRequestV1, TaskFinderResultV1, TaskQueryRequestV1, TaskQueryResultV1 } from './context.js';
 import type { RuntimeDiagnosticsV1, RuntimeHealthV1 } from './lifecycle.js';
 import type { MutationApplyRequestV1, MutationPreviewRequestV1, MutationPreviewResultV1, MutationResultV1 } from './mutation.js';
 import type { TimerReadRequestV1, TimerReadResultV1 } from './timer.js';
@@ -9,7 +9,7 @@ import { CONTRACT_VERSION_V1 } from './primitives.js';
 export declare const CLI_CONTRACT_VERSION_V1: 1;
 export declare const CLI_DEFAULT_READINESS_TIMEOUT_MS_V1 = 15000;
 export declare const CLI_MAX_READINESS_TIMEOUT_MS_V1 = 30000;
-export declare const CLI_COMMANDS_V1: readonly ["health", "capabilities", "diagnostics", "catalog", "entity.resolve", "task.get", "tasks.query", "tasks.filter-query", "tasks.finder", "relationships.get", "context.build", "timers.read", "mutation.preview", "mutation.apply"];
+export declare const CLI_COMMANDS_V1: readonly ["health", "capabilities", "diagnostics", "catalog", "entity.resolve", "task.get", "tasks.query", "tasks.finder", "relationships.get", "context.build", "timers.read", "mutation.preview", "mutation.apply"];
 export type CliCommandV1 = typeof CLI_COMMANDS_V1[number];
 export declare const CLI_FAILURE_STAGES_V1: readonly ["client-input", "transport", "vault", "compatibility", "readiness", "capability", "runtime", "internal"];
 export type CliFailureStageV1 = typeof CLI_FAILURE_STAGES_V1[number];
@@ -23,8 +23,8 @@ export declare const CLI_EXIT_CODES_V1: Readonly<{
 }>;
 export declare const CLI_COMMAND_CAPABILITY_V1: Readonly<Partial<Record<CliCommandV1, CapabilityIdV1>>>;
 export declare const CLI_COMMAND_HANDLER_V1: Readonly<Record<CliCommandV1, string>>;
-export type CliRuntimeRequestV1 = CatalogRequestV1 | EntityResolveRequestV1 | TaskGetRequestV1 | TaskQueryRequestV1 | TaskFilterQueryRequestV1 | TaskFinderRequestV1 | RelationshipRequestV1 | ContextRequestV1 | TimerReadRequestV1 | MutationPreviewRequestV1 | MutationApplyRequestV1;
-export type CliRuntimeResultV1 = RuntimeHealthV1 | RuntimeDiagnosticsV1 | CapabilityAdvertisementV1[] | OperonCatalogV1 | EntityResolutionResultV1 | TaskGetResultV1 | TaskQueryResultV1 | TaskFilterQueryResultV1 | TaskFinderResultV1 | RelationshipResultV1 | ContextPackV1 | TimerReadResultV1 | MutationPreviewResultV1 | MutationResultV1;
+export type CliRuntimeRequestV1 = CatalogRequestV1 | EntityResolveRequestV1 | TaskGetRequestV1 | TaskQueryRequestV1 | TaskFinderRequestV1 | RelationshipRequestV1 | ContextRequestV1 | TimerReadRequestV1 | MutationPreviewRequestV1 | MutationApplyRequestV1;
+export type CliRuntimeResultV1 = RuntimeHealthV1 | RuntimeDiagnosticsV1 | CapabilityAdvertisementV1[] | OperonCatalogV1 | EntityResolutionResultV1 | TaskGetResultV1 | TaskQueryResultV1 | TaskFinderResultV1 | RelationshipResultV1 | ContextPackV1 | TimerReadResultV1 | MutationPreviewResultV1 | MutationResultV1;
 export interface CliInvocationV1 {
     contractVersion: typeof CONTRACT_VERSION_V1;
     kind: 'cli-invocation';

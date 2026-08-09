@@ -27,8 +27,18 @@ test('standalone package boundary is closed', async () => {
 });
 
 test('generated public inventories are exact', async () => {
-	assert.equal((await readdir(path.join(projectRoot, 'schemas', 'v1'))).filter(name => name.endsWith('.json')).length, 16);
-	assert.equal((await list(path.join(projectRoot, 'types'))).filter(name => name.endsWith('.d.ts')).length, 15);
+	const schemas = (await list(path.join(projectRoot, 'schemas', 'v1')))
+		.filter(name => name.endsWith('.json'));
+	assert.equal(schemas.length, 22);
+	assert.deepEqual(schemas.filter(name => name.startsWith('extensions/')), [
+		'extensions/task-workflows-v1/capabilities.schema.json',
+		'extensions/task-workflows-v1/cli.schema.json',
+		'extensions/task-workflows-v1/developer-api.schema.json',
+		'extensions/task-workflows-v1/extension-manifest.json',
+		'extensions/task-workflows-v1/mutation.schema.json',
+		'extensions/task-workflows-v1/read.schema.json',
+	]);
+	assert.equal((await list(path.join(projectRoot, 'types'))).filter(name => name.endsWith('.d.ts')).length, 16);
 });
 
 test('source and build files contain no plugin-relative or private path markers', async () => {

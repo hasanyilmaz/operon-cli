@@ -1,8 +1,8 @@
 import type { CapabilityAdvertisementV1, CapabilityIdV1, MutationKindV1 } from '../../contracts/v1/capabilities.js';
 import type { CatalogRequestV1, OperonCatalogV1 } from '../../contracts/v1/catalog.js';
-import type { ContextPackV1, ContextRequestV1, EntityResolutionResultV1, EntityResolveRequestV1, RelationshipRequestV1, RelationshipResultV1, TaskFinderRequestV1, TaskFinderResultV1, TaskFilterQueryRequestV1, TaskFilterQueryResultV1, TaskGetRequestV1, TaskGetResultV1, TaskQueryRequestV1, TaskQueryResultV1 } from '../../contracts/v1/context.js';
+import type { ContextPackV1, ContextRequestV1, EntityResolutionResultV1, EntityResolveRequestV1, RelationshipRequestV1, RelationshipResultV1, TaskFinderRequestV1, TaskFinderResultV1, TaskGetRequestV1, TaskGetResultV1, TaskQueryRequestV1, TaskQueryResultV1 } from '../../contracts/v1/context.js';
 import type { RuntimeDiagnosticsV1, RuntimeHealthV1, RuntimeLifecyclePhaseV1 } from '../../contracts/v1/lifecycle.js';
-import type { AtomicGroupResultV1, AdoptTaskPreviewIntentV1, ConvertTaskSpecV1, CreateTaskSpecV1, DeleteTaskSpecV1, ExactMutationTargetV1, MutationPostflightV1, PredictedEffectV1, PinnedTaskStateSpecV1, RelocateInlineTaskPreviewIntentV1, RelocateInlineTaskSpecV1, ReminderItemSpecV1, ReplaceTaskRelationshipsSpecV1, RiskLevelV1, TimerControlSpecV1, TimerSessionSpecV1, TransitionTaskSpecV1, UpdateTaskBatchSpecV1, UpdateTaskRecurrenceSpecV1, UpdateTaskSpecV1 } from '../../contracts/v1/mutation.js';
+import type { AtomicGroupResultV1, ConvertTaskSpecV1, CreateTaskSpecV1, DeleteTaskSpecV1, ExactMutationTargetV1, MutationPostflightV1, PredictedEffectV1, PinnedTaskStateSpecV1, RelocateInlineTaskPreviewIntentV1, RelocateInlineTaskSpecV1, ReminderItemSpecV1, ReplaceTaskRelationshipsSpecV1, RiskLevelV1, TimerControlSpecV1, TimerSessionSpecV1, TransitionTaskSpecV1, UpdateTaskBatchSpecV1, UpdateTaskRecurrenceSpecV1, UpdateTaskSpecV1 } from '../../contracts/v1/mutation.js';
 import type { CompatibilityRangeV1, ContractWarningV1, StructuredErrorV1 } from '../../contracts/v1/primitives.js';
 import type { TimerReadRequestV1, TimerReadResultV1 } from '../../contracts/v1/timer.js';
 export type { AtomicGroupResultV1 } from '../../contracts/v1/mutation.js';
@@ -102,7 +102,6 @@ export interface DeveloperApiEntitiesV1 {
 export interface DeveloperApiTasksV1 {
     readonly get: (request: DeepReadonlyV1<TaskGetRequestV1>) => Promise<DeepReadonlyV1<TaskGetResultV1>>;
     readonly query: (request: DeepReadonlyV1<TaskQueryRequestV1>) => Promise<DeepReadonlyV1<TaskQueryResultV1>>;
-    readonly filterQuery: (request: DeepReadonlyV1<TaskFilterQueryRequestV1>) => Promise<DeepReadonlyV1<TaskFilterQueryResultV1>>;
     readonly find: (request: DeepReadonlyV1<TaskFinderRequestV1>) => Promise<DeepReadonlyV1<TaskFinderResultV1>>;
 }
 export interface DeveloperApiRelationshipsV1 {
@@ -134,11 +133,6 @@ export type DeveloperMutationPreviewInputV1 = Readonly<{
     mutationKind: 'task.create';
     target?: never;
     spec: DeepReadonlyV1<CreateTaskSpecV1>;
-}> | Readonly<{
-    capability: 'tasks.adopt.preview';
-    mutationKind: 'task.adopt';
-    target?: never;
-    spec: DeepReadonlyV1<AdoptTaskPreviewIntentV1>;
 }> | DeveloperTargetedMutationPreviewInputV1<'task.update', 'tasks.update.preview', UpdateTaskSpecV1> | Readonly<{
     capability: 'tasks.update.preview';
     mutationKind: 'task.update';

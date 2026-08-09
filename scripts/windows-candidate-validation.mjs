@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
+import { EXPECTED_PACKAGE_PATHS_V1 } from './package-archive.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RECEIPT_KIND = 'operon-cli-windows-candidate-validation-v1';
@@ -49,7 +50,7 @@ export async function runWindowsCandidateValidation() {
 		assert.deepEqual(canonical?.package, OPERON_CLI_RELEASE_V1.package, 'OPERON_CLI_WINDOWS_CANDIDATE_RELEASE_IDENTITY_MISMATCH');
 		assert.equal(
 			canonical?.inventory?.length,
-			OPERON_CLI_RELEASE_V1.inventoryEntries,
+			EXPECTED_PACKAGE_PATHS_V1.length,
 			'OPERON_CLI_WINDOWS_CANDIDATE_INVENTORY_MISMATCH',
 		);
 		receipt = {

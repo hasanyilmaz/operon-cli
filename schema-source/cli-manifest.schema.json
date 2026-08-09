@@ -8,6 +8,7 @@
     "manifestVersion",
     "package",
     "compatibility",
+    "runtimeExtensions",
     "commands",
     "runtimeCapabilities",
     "convenienceMutations",
@@ -75,6 +76,9 @@
         }
       }
     },
+    "runtimeExtensions": {
+      "$ref": "#/$defs/runtimeExtensions"
+    },
     "commands": {
       "type": "object",
       "additionalProperties": false,
@@ -99,7 +103,7 @@
           "minItems": 13,
           "items": {
             "type": "string",
-            "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9]+)*$"
+            "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z0-9-]+)*$"
           }
         },
         "convenience": {
@@ -450,6 +454,56 @@
         }
       }
     },
+    "runtimeExtensions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "taskWorkflowsV1"
+      ],
+      "properties": {
+        "taskWorkflowsV1": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "extensionId",
+            "contractVersion",
+            "pluginCheckpointCommit",
+            "baseContractDigest",
+            "baseSchemaManifestAggregateSha256",
+            "aggregateSha256",
+            "capabilities"
+          ],
+          "properties": {
+            "extensionId": {
+              "const": "task-workflows-v1"
+            },
+            "contractVersion": {
+              "const": 1
+            },
+            "pluginCheckpointCommit": {
+              "const": "1e63f986057916bb3d66365a72346314946326a7"
+            },
+            "baseContractDigest": {
+              "const": "407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b"
+            },
+            "baseSchemaManifestAggregateSha256": {
+              "const": "7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa"
+            },
+            "aggregateSha256": {
+              "const": "5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c"
+            },
+            "capabilities": {
+              "const": [
+                "tasks.filter-query",
+                "tasks.create.identity-placeholders",
+                "tasks.adopt.preview",
+                "tasks.adopt.apply"
+              ]
+            }
+          }
+        }
+      }
+    },
     "runtimeCommand": {
       "enum": [
         "health",
@@ -459,6 +513,7 @@
         "entity.resolve",
         "task.get",
         "tasks.query",
+        "tasks.filter-query",
         "tasks.finder",
         "relationships.get",
         "context.build",
@@ -471,6 +526,7 @@
       "enum": [
         "task.create",
         "task.update",
+        "task.adopt",
         "task.complete",
         "task.reopen",
         "task.cancel",
@@ -493,6 +549,7 @@
     "mutationKind": {
       "enum": [
         "task.create",
+        "task.adopt",
         "task.update",
         "task.recurrence",
         "task.relationship",
@@ -517,6 +574,7 @@
         "entity.resolve",
         "task.get",
         "tasks.query",
+        "tasks.filter-query",
         "tasks.finder",
         "relationships.get",
         "context.build",
@@ -546,6 +604,9 @@
         "tasks.query": {
           "const": "tasks.query"
         },
+        "tasks.filter-query": {
+          "const": "tasks.filter-query"
+        },
         "tasks.finder": {
           "const": "tasks.finder"
         },
@@ -572,6 +633,7 @@
       "required": [
         "task.create",
         "task.update",
+        "task.adopt",
         "task.complete",
         "task.reopen",
         "task.cancel",
@@ -596,6 +658,9 @@
         },
         "task.update": {
           "const": "task.update"
+        },
+        "task.adopt": {
+          "const": "task.adopt"
         },
         "task.complete": {
           "const": "task.transition"
@@ -672,6 +737,14 @@
         "resultSchema": {
           "type": "string",
           "minLength": 1
+        },
+        "extensionRequestSchema": {
+          "type": "string",
+          "minLength": 1
+        },
+        "extensionResultSchema": {
+          "type": "string",
+          "minLength": 1
         }
       }
     },
@@ -686,6 +759,7 @@
         "entity.resolve",
         "task.get",
         "tasks.query",
+        "tasks.filter-query",
         "tasks.finder",
         "relationships.get",
         "context.build",
@@ -796,6 +870,21 @@
             },
             "resultSchema": {
               "const": "task-query-result"
+            }
+          }
+        },
+        "tasks.filter-query": {
+          "type": "object",
+          "$ref": "#/$defs/runtimeContract",
+          "properties": {
+            "capability": {
+              "const": "tasks.filter-query"
+            },
+            "requestSchema": {
+              "const": "task-filter-query-request"
+            },
+            "resultSchema": {
+              "const": "task-filter-query-result"
             }
           }
         },
@@ -951,6 +1040,9 @@
         "intentSchema",
         "previewResultSchema",
         "applyResultSchema",
+        "extensionPreviewRequestSchema",
+        "extensionPreviewResultSchema",
+        "extensionApplyResultSchema",
         "inputFormats",
         "compactGrammarVersion",
         "compactBatchVersion",
@@ -978,6 +1070,15 @@
         },
         "applyResultSchema": {
           "const": "mutation-result"
+        },
+        "extensionPreviewRequestSchema": {
+          "const": "task-workflow-preview-request"
+        },
+        "extensionPreviewResultSchema": {
+          "const": "task-workflow-preview-result"
+        },
+        "extensionApplyResultSchema": {
+          "const": "task-workflow-mutation-result"
         },
         "inputFormats": {
           "const": [
@@ -1453,6 +1554,34 @@
         "task.update": {
           "$ref": "#/$defs/taskUpdateConvenienceContract"
         },
+        "task.adopt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "mutationKind",
+            "targetPolicy",
+            "intentSchema",
+            "previewResultSchema",
+            "applyResultSchema"
+          ],
+          "properties": {
+            "mutationKind": {
+              "const": "task.adopt"
+            },
+            "targetPolicy": {
+              "const": "forbidden"
+            },
+            "intentSchema": {
+              "const": "task-adopt-preview-intent"
+            },
+            "previewResultSchema": {
+              "const": "task-workflow-preview-result"
+            },
+            "applyResultSchema": {
+              "const": "task-workflow-mutation-result"
+            }
+          }
+        },
         "task.complete": {
           "$ref": "#/$defs/taskTransitionConvenienceContract"
         },
@@ -1557,6 +1686,7 @@
       "required": [
         "task.create",
         "task.update",
+        "task.adopt",
         "task.recurrence",
         "task.relationship",
         "task.reminder-item",
@@ -1574,6 +1704,22 @@
         },
         "task.update": {
           "$ref": "#/$defs/updateCapabilities"
+        },
+        "task.adopt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "preview",
+            "apply"
+          ],
+          "properties": {
+            "preview": {
+              "const": "tasks.adopt.preview"
+            },
+            "apply": {
+              "const": "tasks.adopt.apply"
+            }
+          }
         },
         "task.recurrence": {
           "$ref": "#/$defs/recurrenceCapabilities"
@@ -1812,7 +1958,7 @@
       "properties": {
         "file": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._-]+\\.json$"
+          "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:\\/[A-Za-z0-9._-]+)*\\.json$"
         },
         "id": {
           "type": "string",
@@ -1845,7 +1991,7 @@
         },
         "file": {
           "type": "string",
-          "pattern": "^[A-Za-z0-9._-]+\\.json$"
+          "pattern": "^(?!\\.{1,2}(?:/|$))(?!.*\\/\\.{1,2}(?:/|$))[A-Za-z0-9._-]+(?:\\/[A-Za-z0-9._-]+)*\\.json$"
         },
         "sha256": {
           "type": "string",

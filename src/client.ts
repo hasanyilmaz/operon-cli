@@ -9,13 +9,6 @@ import {
 	CLI_EXIT_CODES_V1,
 	CLI_MAX_READINESS_TIMEOUT_MS_V1,
 	type CliClientErrorEnvelopeV1,
-	type CliCommandV1,
-	type CliInvocationV1,
-	type CliResultEnvelopeV1,
-	type CliRuntimeRequestV1,
-	admitMutationResultV1,
-	decodeCliInvocationV1,
-	decodeCliResultEnvelopeV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
 import {
 	CONTRACT_LIMITS_V1,
@@ -35,6 +28,16 @@ import {
 	writeSecureInvocationV1,
 } from './protocol';
 import { getOrCreateOperonCliClientIdV1 } from './client-identity';
+import {
+	admitRuntimeMutationResultV1,
+	decodeRuntimeCliInvocationV1,
+	decodeRuntimeCliResultEnvelopeV1,
+	type RuntimeCliCommandV1,
+	type RuntimeCliInvocationV1,
+	type RuntimeCliResultEnvelopeV1,
+	type RuntimeMutationApplyRequestV1,
+	type RuntimeMutationPreviewRequestV1,
+} from './runtime-contract-compatibility';
 import {
 	renderRootHelpV1,
 	resolveCommandDefinitionV1,
@@ -61,7 +64,7 @@ export const OPERON_CLI_VERSION = typeof __OPERON_CLI_VERSION__ === 'string'
 	: '0.0.0-development';
 
 export interface CliOptionsV1 {
-	command: CliCommandV1;
+	command: RuntimeCliCommandV1;
 	vaultPath: string;
 	json: boolean;
 	inputPath?: string;
@@ -90,7 +93,7 @@ export type ProcessRunnerV1 = (
 ) => Promise<ProcessResultV1>;
 
 export interface WindowsBrokerClientPortV1 {
-	stage(invocation: CliInvocationV1): Promise<{ requestToken: string; stagingReceipt: string }>;
+	stage(invocation: RuntimeCliInvocationV1): Promise<{ requestToken: string; stagingReceipt: string }>;
 	status(requestToken: string): Promise<{
 		state: 'staged' | 'consumed' | 'dispatch-started' | 'unknown';
 	}>;
@@ -104,9 +107,9 @@ export interface WindowsBrokerClientPortV1 {
 export type ApplyDispatchEvidenceV1 = 'not-started' | 'may-have-started';
 
 export interface CliExecutionOutcomeV1 {
-	envelope: CliResultEnvelopeV1;
+	envelope: RuntimeCliResultEnvelopeV1;
 	exitCode: number;
-	invocation?: CliInvocationV1;
+	invocation?: RuntimeCliInvocationV1;
 	/** Internal plan-store handoff; never serialized in a public result. */
 	_applyDispatchEvidence?: ApplyDispatchEvidenceV1;
 }
@@ -174,7 +177,7 @@ export async function buildInvocationV1(
 	input?: Buffer,
 	resolvedVaultFence?: CanonicalVaultFenceV1,
 	clientIdentityPath?: string,
-): Promise<{ invocation: CliInvocationV1; canonicalVaultPath: string }> {
+): Promise<{ invocation: RuntimeCliInvocationV1; canonicalVaultPath: string }> {
 	let vault: ReturnType<typeof canonicalVaultIdentityV1>;
 	try {
 		if (resolvedVaultFence) {
@@ -198,7 +201,7 @@ export async function buildInvocationV1(
 		) throw error;
 		throw new Error('VAULT_PATH_UNAVAILABLE');
 	}
-	let request: CliRuntimeRequestV1 | undefined;
+	let request: RuntimeMutationPreviewRequestV1 | RuntimeMutationApplyRequestV1 | Record<string, unknown> | undefined;
 	if (options.inputPath) {
 		const rawInput = input ?? await loadInputV1(options.inputPath);
 		request = parseRuntimeRequest(rawInput);
@@ -218,7 +221,10 @@ export async function buildInvocationV1(
 		if (
 			options.command === 'mutation.apply'
 			&& request.kind === 'mutation-apply'
-			&& request.plan.clientInstanceId !== getOrCreateOperonCliClientIdV1(clientIdentityPath)
+			&& (
+				!isPlainRecord(request.plan)
+				|| request.plan.clientInstanceId !== getOrCreateOperonCliClientIdV1(clientIdentityPath)
+			)
 		) {
 			throw new Error('CLIENT_INSTANCE_MISMATCH');
 		}
@@ -251,7 +257,7 @@ export async function buildInvocationV1(
 			};
 		}
 	}
-	const invocation: CliInvocationV1 = {
+	const invocation = {
 		contractVersion: 1,
 		kind: 'cli-invocation',
 		requestId: request?.requestId ?? options.requestId ?? randomUUID(),
@@ -267,7 +273,7 @@ export async function buildInvocationV1(
 		readinessTimeoutMs: options.readinessTimeoutMs,
 		...(request ? { request } : {}),
 	};
-	const decoded = decodeCliInvocationV1(invocation);
+	const decoded = decodeRuntimeCliInvocationV1(invocation);
 	if (!decoded.ok) throw new Error(`INVALID_INVOCATION:${formatDecodeIssues(decoded.issues)}`);
 	return { invocation: decoded.value, canonicalVaultPath: vault.canonicalPath };
 }
@@ -289,7 +295,7 @@ export async function executeCliV1(
 ): Promise<CliExecutionOutcomeV1> {
 	const startedAt = performance.now();
 	let requestFile: SecureRequestFileV1 | null = null;
-	let invocation: CliInvocationV1 | null = null;
+	let invocation: RuntimeCliInvocationV1 | null = null;
 	let windowsBroker: WindowsBrokerClientPortV1 | null = null;
 	let windowsRequestToken: string | null = null;
 	let inputBytes = 0;
@@ -327,7 +333,9 @@ export async function executeCliV1(
 		}
 		let requestToken = windowsRequestToken ?? requestFile?.token;
 		if (!requestToken) throw new Error('TRANSPORT_STAGING_FAILED');
-		const handler = CLI_COMMAND_HANDLER_V1[options.command];
+		const handler = options.command === 'tasks.filter-query'
+			? 'operon:filter-query'
+			: CLI_COMMAND_HANDLER_V1[options.command];
 		const spawnStartedAt = performance.now();
 		let processResult: ProcessResultV1;
 		let usedSpawnTransport = true;
@@ -537,7 +545,7 @@ export async function executeCliV1(
 				applyDispatched,
 			);
 		}
-		const decoded = decodeCliResultEnvelopeV1(completed);
+		const decoded = decodeRuntimeCliResultEnvelopeV1(completed, invocation);
 		if (!decoded.ok) {
 			const issueSummary = decoded.issues
 				.slice(0, 3)
@@ -664,7 +672,7 @@ async function mutationDispatchMayHaveStartedV1(
 	}
 }
 
-export function isPersistentReadCommandV1(command: CliCommandV1): boolean {
+export function isPersistentReadCommandV1(command: RuntimeCliCommandV1): boolean {
 	return command === 'health'
 		|| command === 'capabilities'
 		|| command === 'diagnostics'
@@ -705,8 +713,8 @@ function runSpawnTransport(
 }
 
 export function validateCliMutationApplyResultBindingV1(
-	invocation: CliInvocationV1,
-	envelope: CliResultEnvelopeV1,
+	invocation: RuntimeCliInvocationV1,
+	envelope: RuntimeCliResultEnvelopeV1,
 ): boolean {
 	if (
 		invocation.command !== 'mutation.apply'
@@ -719,7 +727,7 @@ export function validateCliMutationApplyResultBindingV1(
 		: null;
 	const clientInstanceId = plan?.clientInstanceId;
 	if (typeof clientInstanceId !== 'string') return false;
-	return admitMutationResultV1(
+	return admitRuntimeMutationResultV1(
 		envelope.result,
 		applyRequest,
 		{
@@ -826,7 +834,7 @@ export async function runObsidianProcessV1(
 	});
 }
 
-export function exitCodeForEnvelopeV1(envelope: CliResultEnvelopeV1): number {
+export function exitCodeForEnvelopeV1(envelope: RuntimeCliResultEnvelopeV1): number {
 	if (envelope.ok) {
 		const resultRecord = asRecord(envelope.result);
 		if (
@@ -862,7 +870,7 @@ export function exitCodeForEnvelopeV1(envelope: CliResultEnvelopeV1): number {
 	}
 }
 
-export function createCliUsageFailureV1(command: CliCommandV1): CliResultEnvelopeV1 {
+export function createCliUsageFailureV1(command: RuntimeCliCommandV1): RuntimeCliResultEnvelopeV1 {
 	return {
 		contractVersion: 1,
 		kind: 'cli-result',
@@ -917,20 +925,22 @@ async function loadInputV1(inputPath: string): Promise<Buffer> {
 	return Buffer.concat(chunks);
 }
 
-function parseRuntimeRequest(input: Buffer): CliRuntimeRequestV1 {
+function parseRuntimeRequest(input: Buffer): Record<string, unknown> {
 	if (input.byteLength > CONTRACT_LIMITS_V1.transportInputBytes) throw new Error('INPUT_TOO_LARGE');
 	try {
-		return JSON.parse(input.toString('utf8')) as CliRuntimeRequestV1;
+		const value = JSON.parse(input.toString('utf8')) as unknown;
+		if (!isPlainRecord(value)) throw new Error('INPUT_NOT_JSON');
+		return value;
 	} catch {
 		throw new Error('INPUT_NOT_JSON');
 	}
 }
 
-export function parseCliCommandV1(argv: string[]): { command: CliCommandV1; consumed: number } {
+export function parseCliCommandV1(argv: string[]): { command: RuntimeCliCommandV1; consumed: number } {
 	const resolved = resolveCommandDefinitionV1(argv, 'runtime');
 	if (!resolved) throw new Error('UNKNOWN_COMMAND');
 	return {
-		command: resolved.definition.id as CliCommandV1,
+		command: resolved.definition.id as RuntimeCliCommandV1,
 		consumed: resolved.consumed,
 	};
 }
@@ -976,7 +986,7 @@ function parsePositiveInteger(value: string, flag: string): number {
 	return parsed;
 }
 
-function fallbackInvocationV1(options: CliOptionsV1): CliInvocationV1 {
+function fallbackInvocationV1(options: CliOptionsV1): RuntimeCliInvocationV1 {
 	return {
 		contractVersion: 1,
 		kind: 'cli-invocation',
@@ -991,7 +1001,7 @@ function fallbackInvocationV1(options: CliOptionsV1): CliInvocationV1 {
 		cliContract: { min: 1, max: 1 },
 		expectedVaultSha256: '0'.repeat(64),
 		readinessTimeoutMs: options.readinessTimeoutMs,
-	};
+	} as RuntimeCliInvocationV1;
 }
 
 function processFailureDetailsV1(
@@ -1064,11 +1074,11 @@ function isObsidianHandlerUnavailableDiagnosticV1(value: string): boolean {
 }
 
 function clientFailure(
-	invocation: CliInvocationV1,
+	invocation: RuntimeCliInvocationV1,
 	inputBytes: number,
 	totalMs: number,
-	stage: Extract<CliResultEnvelopeV1, { ok: false }>['failure']['stage'],
-	code: Extract<CliResultEnvelopeV1, { ok: false }>['failure']['error']['code'],
+	stage: Extract<RuntimeCliResultEnvelopeV1, { ok: false }>['failure']['stage'],
+	code: Extract<RuntimeCliResultEnvelopeV1, { ok: false }>['failure']['error']['code'],
 	reason: string,
 	retryable: boolean,
 	applyDispatched: boolean = false,
@@ -1080,7 +1090,7 @@ function clientFailure(
 	const publicReason = uncertainApply
 		? 'Apply outcome is uncertain; recover the same stored plan only.'
 		: reason;
-	const envelope: CliResultEnvelopeV1 = {
+	const envelope: RuntimeCliResultEnvelopeV1 = {
 		contractVersion: 1,
 		kind: 'cli-result',
 		requestId: invocation.requestId,
@@ -1147,8 +1157,8 @@ function publicClientErrorReason(error: unknown): string {
 }
 
 function classifyClientExecutionError(error: unknown): {
-	stage: Extract<CliResultEnvelopeV1, { ok: false }>['failure']['stage'];
-	code: Extract<CliResultEnvelopeV1, { ok: false }>['failure']['error']['code'];
+	stage: Extract<RuntimeCliResultEnvelopeV1, { ok: false }>['failure']['stage'];
+	code: Extract<RuntimeCliResultEnvelopeV1, { ok: false }>['failure']['error']['code'];
 	reason: string;
 	retryable: boolean;
 } {
