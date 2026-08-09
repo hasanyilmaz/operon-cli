@@ -39,6 +39,10 @@
     "./contracts/v1/cli": {
       "types": "./types/src/agent-runtime/public/v1/cli.d.ts",
       "default": null
+    },
+    "./contracts/v1/extensions/task-workflows-v1": {
+      "types": "./types/src/agent-runtime/extensions/task-workflows-v1/contracts.d.ts",
+      "default": null
     }
   },
   "typesVersions": {
@@ -52,6 +56,9 @@
       "contracts/v1/cli": [
         "types/src/agent-runtime/public/v1/cli.d.ts"
       ],
+      "contracts/v1/extensions/task-workflows-v1": [
+        "types/src/agent-runtime/extensions/task-workflows-v1/contracts.d.ts"
+      ],
       "*": [
         "types/not-exported.d.ts"
       ]
@@ -59,7 +66,7 @@
   },
   "files": [
     "dist/**/*.mjs",
-    "schemas/v1/*.json",
+    "schemas/v1/**/*.json",
     "types/**/*.d.ts",
     "examples/developer-api-consumer/**",
     "cli-manifest-v1.json",

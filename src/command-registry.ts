@@ -28,6 +28,8 @@ export interface OperonCliCommandDefinitionV1 {
 		capability?: string;
 		requestSchema?: string | null;
 		resultSchema?: string;
+		extensionRequestSchema?: string;
+		extensionResultSchema?: string;
 		outputSchemas?: readonly string[];
 		mutationKind?: string;
 		mutationKindRoutes?: readonly {
@@ -461,6 +463,8 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 			capability: 'mutation-kind-derived',
 			requestSchema: 'mutation-preview-request',
 			resultSchema: 'mutation-preview-result',
+			extensionRequestSchema: 'task-workflow-preview-request',
+			extensionResultSchema: 'task-workflow-preview-result',
 		},
 	},
 	{
@@ -481,6 +485,8 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 			capability: 'mutation-kind-derived',
 			requestSchema: 'mutation-plan-reference',
 			resultSchema: 'mutation-result',
+			extensionRequestSchema: 'task-workflow-apply-request',
+			extensionResultSchema: 'task-workflow-mutation-result',
 		},
 	},
 	{

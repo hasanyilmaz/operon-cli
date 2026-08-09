@@ -5,6 +5,7 @@ import {
 import path from 'node:path';
 import {
 	type PublicCommandPortsV1,
+	type PublicCommandOutcomeV1,
 	runPublicCommandLineV1,
 } from './command-line';
 import {
@@ -248,15 +249,52 @@ async function processSessionLine(
 			const group = decodeSessionReadGroup(requestValue, limits, options);
 			timingId = group.id;
 			if (!persistentReadTransport) throw new Error('session-read-group-persistent-required');
-			persistentReadTransport.beginBatch(group.reads.length);
+			let capabilityAdvertisements: PublicCommandPortsV1['_capabilityAdvertisements'];
+			let filterPreflightFailure: PublicCommandOutcomeV1 | undefined;
+			if (group.reads.some(read => isFilterQueryArgv(read.argv))) {
+				const preflight = await runCommand(
+					['capabilities', '--vault', group.target.canonicalPath, '--json'],
+					{
+						...options.commandPorts,
+						_resolvedTarget: group.target,
+						_persistentReadTransport: persistentReadTransport,
+						outputMode: 'envelope-only',
+						...(options.signal ? { signal: options.signal } : {}),
+					},
+				);
+				if (
+					preflight.exitCode === 0
+					&& preflight.envelope.kind === 'cli-result'
+					&& preflight.envelope.ok
+					&& Array.isArray(preflight.envelope.result)
+				) {
+					capabilityAdvertisements = preflight.envelope.result as PublicCommandPortsV1['_capabilityAdvertisements'];
+				} else {
+					filterPreflightFailure = preflight;
+				}
+			}
+			const filterAvailable = capabilityAdvertisements?.some(advertisement => (
+				advertisement.id === 'tasks.filter-query'
+				&& advertisement.availability === 'available'
+			)) === true;
+			const dispatchedReadCount = group.reads.filter(read => (
+				!isFilterQueryArgv(read.argv)
+				|| (filterPreflightFailure === undefined && filterAvailable)
+			)).length;
+			if (dispatchedReadCount >= SESSION_READ_GROUP_MIN) {
+				persistentReadTransport.beginBatch(dispatchedReadCount);
+			}
 			const responses = group.reads.map(read => (
-				executeSessionRequest(
+				isFilterQueryArgv(read.argv) && filterPreflightFailure
+					? Promise.resolve(sessionCommandResponse(read.id, filterPreflightFailure))
+					: executeSessionRequest(
 					read,
 					options,
 					runCommand,
 					limits,
 					persistentReadTransport,
 					group.target,
+					capabilityAdvertisements,
 				)
 			));
 			await writeOrderedReadGroupResponses(responses, options.output, options.signal);
@@ -334,6 +372,7 @@ async function executeSessionRequest(
 	limits: SessionLimitsV1,
 	persistentReadTransport: PersistentReadTransportV1,
 	target: ResolvedVaultCommandScopeV1,
+	capabilityAdvertisements?: PublicCommandPortsV1['_capabilityAdvertisements'],
 ): Promise<Record<string, unknown>> {
 	const input = encodeSessionInput(request, limits);
 	try {
@@ -341,6 +380,7 @@ async function executeSessionRequest(
 			...options.commandPorts,
 			_resolvedTarget: target,
 			_persistentReadTransport: persistentReadTransport,
+			...(capabilityAdvertisements ? { _capabilityAdvertisements: capabilityAdvertisements } : {}),
 			outputMode: 'envelope-only',
 			...(input ? { input } : {}),
 			...(options.signal ? { signal: options.signal } : {}),
@@ -357,6 +397,15 @@ async function executeSessionRequest(
 			'The Operon command failed unexpectedly.',
 		);
 	}
+}
+
+function sessionCommandResponse(
+	id: SessionRequestIdV1,
+	outcome: PublicCommandOutcomeV1,
+): Record<string, unknown> {
+	return outcome._recoveryPlanRef
+		? uncertainApplyResponse(id, outcome._recoveryPlanRef)
+		: { id, exitCode: outcome.exitCode, result: outcome.envelope };
 }
 
 function uncertainApplyResponse(
@@ -467,8 +516,13 @@ function decodeSessionReadGroup(
 function isGroupedReadArgv(argv: readonly string[]): boolean {
 	return argv[0] === 'health'
 		|| argv[0] === 'query'
+		|| argv[0] === 'filter-query'
 		|| (argv[0] === 'task' && argv[1] === 'get')
 		|| argv[0] === 'context';
+}
+
+function isFilterQueryArgv(argv: readonly string[]): boolean {
+	return argv[0] === 'filter-query';
 }
 
 function targetInput(

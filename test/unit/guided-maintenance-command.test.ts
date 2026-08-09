@@ -31,6 +31,14 @@ import type {
 	TaskGetResultV1,
 	TaskQueryResultV1,
 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
+import type {
+	TaskWorkflowApplyRequestV1,
+	TaskWorkflowPreviewRequestV1,
+} from '../../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
+import type {
+	RuntimeCliInvocationV1,
+	RuntimeCliResultEnvelopeV1,
+} from '../../src/runtime-contract-compatibility';
 import {
 	canonicalJsonV1,
 	computeReceiptTargetDigestV1,
@@ -49,6 +57,11 @@ import {
 import { readMutationPlanV1 } from '../../src/plan-store';
 import { requestPathForTokenV1 } from '../../src/protocol';
 import type { InteractiveTerminalPortV1 } from '../../src/terminal-port';
+import {
+	adoptWorkflowPreviewResultV1,
+	identityWorkflowPreviewResultV1,
+	taskWorkflowAppliedResultV1,
+} from '../fixtures/task-workflow-contract';
 
 const GUIDED_COMMANDS = [
 	['task', 'update'],
@@ -71,7 +84,7 @@ const COMMAND_OPERATIONS = new Map<string, string>([
 ]);
 
 type HarnessWindowsBrokerFrameV1 = {
-	invocation: CliInvocationV1;
+	invocation: RuntimeCliInvocationV1;
 	state: 'staged' | 'consumed';
 };
 
@@ -147,12 +160,153 @@ async function run(): Promise<void> {
 	await testCommandPreviewDeclineAndApply();
 	await testGuidedCreationPreviewOnly();
 	await testCompactCreationFlows();
+	await testTaskWorkflowCommandRouting();
 	await testCompactCreationTargetDrift();
 	await testCompactUpdateFlows();
 	await testDirectLifecycleAndReminderFlows();
 	await testDirectTimerSessionFlows();
 	await testDirectPinnedOrchestration();
 	console.log('Operon CLI guided maintenance command tests passed.');
+}
+
+async function testTaskWorkflowCommandRouting(): Promise<void> {
+	const root = await createHarnessRoot('task-workflow-routing');
+	try {
+		const mixedInvocations: RuntimeCliInvocationV1[] = [];
+		await runPublicCommandLineV1([
+			'task', 'create', '--input', '-', '--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			input: Buffer.from(JSON.stringify({
+				contractVersion: 1,
+				kind: 'mutation-intent',
+				reason: 'Mixed creation routing regression.',
+				spec: {
+					operation: 'create',
+					items: [{
+						itemRef: 'file-item',
+						description: 'File task',
+						target: { representation: 'file', mode: 'configured-default' },
+						fields: [],
+					}, {
+						itemRef: 'inline-item',
+						description: 'Inline task',
+						target: { representation: 'inline', mode: 'configured-default' },
+						fields: [],
+					}],
+				},
+			}), 'utf8'),
+			runProcess: runtimeFixtureRunner(root.requests, mixedInvocations, invocation => {
+				if (invocation.command !== 'mutation.preview') {
+					throw new Error(`Mixed creation must not invoke ${invocation.command}`);
+				}
+				return runtimeCapabilityFailureEnvelope(invocation);
+			}),
+		});
+		const mixedPreview = mixedInvocations.at(-1)?.request;
+		assert.equal(mixedPreview?.kind, 'mutation-preview');
+		if (mixedPreview?.kind !== 'mutation-preview') throw new Error('MIXED_PREVIEW_MISSING');
+		assert.equal(mixedPreview.capability, 'tasks.create.preview');
+		assert.equal(mixedPreview.mutationKind, 'task.create');
+		if (mixedPreview.spec.operation !== 'create') throw new Error('MIXED_CREATE_SPEC_MISSING');
+		assert.equal(mixedPreview.spec.items.some(item => (
+			'identityPlaceholderPolicy' in item.target
+		)), false);
+
+		const allFileInvocations: RuntimeCliInvocationV1[] = [];
+		await runPublicCommandLineV1([
+			'task', 'create', '--input', '-', '--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			input: Buffer.from(JSON.stringify({
+				contractVersion: 1,
+				kind: 'mutation-intent',
+				reason: 'All-file creation routing regression.',
+				spec: {
+					operation: 'create',
+					items: [{
+						itemRef: 'file-one',
+						description: 'File one',
+						target: { representation: 'file', mode: 'configured-default' },
+						fields: [],
+					}, {
+						itemRef: 'file-two',
+						description: 'File two',
+						target: { representation: 'file', mode: 'exact-path', filePath: 'Tasks/File two.md' },
+						fields: [],
+					}],
+				},
+			}), 'utf8'),
+			runProcess: runtimeFixtureRunner(root.requests, allFileInvocations, taskWorkflowResponse),
+		});
+		const allFilePreview = allFileInvocations.find(item => item.command === 'mutation.preview')?.request;
+		assert.equal(allFilePreview?.kind, 'mutation-preview');
+		if (allFilePreview?.kind !== 'mutation-preview') throw new Error('ALL_FILE_PREVIEW_MISSING');
+		assert.equal(allFilePreview.capability, 'tasks.create.identity-placeholders');
+		if (allFilePreview.spec.operation !== 'create') throw new Error('ALL_FILE_CREATE_SPEC_MISSING');
+		assert.equal(allFilePreview.spec.items.every(item => (
+			'identityPlaceholderPolicy' in item.target
+			&& item.target.identityPlaceholderPolicy === 'resolve-operon-id-v1'
+		)), true);
+
+		const compactInvocations: RuntimeCliInvocationV1[] = [];
+		const compact = await runPublicCommandLineV1([
+			'task', 'create', 'file', 'Compact extension task', '--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: runtimeFixtureRunner(root.requests, compactInvocations, taskWorkflowResponse),
+		});
+		assert.equal(compact.exitCode, 0, compact.human);
+		assert.deepEqual(compactInvocations.map(item => item.command), [
+			'context.build', 'capabilities', 'mutation.preview', 'mutation.apply',
+		]);
+		const compactPreview = compactInvocations[2]?.request;
+		const compactApply = compactInvocations[3]?.request;
+		assert.equal(compactPreview?.kind === 'mutation-preview' ? compactPreview.capability : undefined, 'tasks.create.identity-placeholders');
+		assert.equal(compactApply?.kind === 'mutation-apply' ? compactApply.plan.capability : undefined, 'tasks.create.identity-placeholders');
+
+		const batchInvocations: RuntimeCliInvocationV1[] = [];
+		const batch = await runPublicCommandLineV1([
+			'task', 'create', '--input-format', 'compact-lines', '--input', '-', '--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			input: Buffer.from('file "One"\nfile "Two"', 'utf8'),
+			runProcess: runtimeFixtureRunner(root.requests, batchInvocations, taskWorkflowResponse),
+		});
+		assert.equal(batch.exitCode, 0, batch.human);
+		assert.ok(batch.envelope.kind === 'cli-result' && batch.envelope.client?.planRef);
+		const batchPreview = batchInvocations.find(item => item.command === 'mutation.preview')?.request;
+		assert.equal(batchPreview?.kind === 'mutation-preview' ? batchPreview.capability : undefined, 'tasks.create.identity-placeholders');
+		if (batchPreview?.kind !== 'mutation-preview' || batchPreview.spec.operation !== 'create') {
+			throw new Error('IDENTITY_BATCH_PREVIEW_MISSING');
+		}
+		assert.equal(batchPreview.spec.items.length, 2);
+		assert.equal(batchInvocations.some(item => item.command === 'mutation.apply'), false);
+
+		await writeFile(path.join(root.vault, 'Inbox.md'), '- [ ] Adopt me\n');
+		const adoptInvocations: RuntimeCliInvocationV1[] = [];
+		const adopted = await runPublicCommandLineV1([
+			'task', 'adopt', '--file', 'Inbox.md', '--line', '1', '--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: runtimeFixtureRunner(root.requests, adoptInvocations, taskWorkflowResponse),
+		});
+		assert.equal(adopted.exitCode, 0, adopted.human);
+		assert.deepEqual(adoptInvocations.map(item => item.command), [
+			'capabilities', 'mutation.preview', 'mutation.apply',
+		]);
+		const adoptPreview = adoptInvocations[1]?.request;
+		const adoptApply = adoptInvocations[2]?.request;
+		assert.equal(adoptPreview?.kind === 'mutation-preview' ? adoptPreview.capability : undefined, 'tasks.adopt.preview');
+		assert.equal(adoptApply?.kind === 'mutation-apply' ? adoptApply.plan.capability : undefined, 'tasks.adopt.preview');
+	} finally {
+		await root.cleanup();
+	}
 }
 
 async function testCompactCreationTargetDrift(): Promise<void> {
@@ -3003,7 +3157,7 @@ function directMutationResponse(
 	taskPinned = false,
 ): CliResultEnvelopeV1 | ProcessResultV1 {
 	if (invocation.command === 'capabilities') {
-		return successEnvelope(invocation, [
+		return successEnvelope(invocation as CliInvocationV1, [
 			'tasks.transition.preview',
 			'tasks.transition.apply',
 			'tasks.reminder.preview',
@@ -3096,7 +3250,7 @@ function directMutationResponse(
 	}
 	if (invocation.command === 'mutation.apply' && includeApply) {
 		return successEnvelope(
-			invocation,
+			invocation as CliInvocationV1,
 			appliedResult(
 				invocation.request as MutationApplyRequestV1,
 				invocation.expectedVaultSha256,
@@ -3593,7 +3747,7 @@ function fixtureRunner(
 			assert.ok(frame);
 			assert.equal(frame.state, 'staged');
 			frame.state = 'consumed';
-			invocation = frame.invocation;
+			invocation = frame.invocation as CliInvocationV1;
 		} else {
 			invocation = JSON.parse(
 				await readFile(requestPathForTokenV1(token, requestRoot), 'utf8'),
@@ -3613,6 +3767,94 @@ function fixtureRunner(
 			overflow: false,
 		};
 	};
+}
+
+function runtimeFixtureRunner(
+	requestRoot: string,
+	invocations: RuntimeCliInvocationV1[],
+	respond: (
+		invocation: RuntimeCliInvocationV1,
+	) => RuntimeCliResultEnvelopeV1 | ProcessResultV1,
+) {
+	return async (_executable: string, args: string[]): Promise<ProcessResultV1> => {
+		const token = args.find(value => value.startsWith('requestToken='))?.slice('requestToken='.length);
+		assert.ok(token);
+		let invocation: RuntimeCliInvocationV1;
+		if (process.platform === 'win32') {
+			const frame = WINDOWS_BROKER_FRAMES.get(token);
+			assert.ok(frame);
+			assert.equal(frame.state, 'staged');
+			frame.state = 'consumed';
+			invocation = frame.invocation;
+		} else {
+			invocation = JSON.parse(
+				await readFile(requestPathForTokenV1(token, requestRoot), 'utf8'),
+			) as RuntimeCliInvocationV1;
+			await unlink(requestPathForTokenV1(token, requestRoot));
+		}
+		invocations.push(structuredClone(invocation));
+		const response = respond(invocation);
+		if ('stdout' in response) return response;
+		return {
+			exitCode: 0,
+			signal: null,
+			stdout: Buffer.from(JSON.stringify(response), 'utf8'),
+			stderr: Buffer.alloc(0),
+			totalMs: 1,
+			timedOut: false,
+			overflow: false,
+		};
+	};
+}
+
+function taskWorkflowResponse(
+	invocation: RuntimeCliInvocationV1,
+): RuntimeCliResultEnvelopeV1 | ProcessResultV1 {
+	if (invocation.command === 'capabilities') {
+		return successEnvelope(invocation, [
+			'context.build',
+			'tasks.create.preview',
+			'tasks.create.apply',
+			'tasks.create.identity-placeholders',
+			'tasks.adopt.preview',
+			'tasks.adopt.apply',
+			'tasks.read',
+		].map(id => ({ id, availability: 'available', stability: 'stable' }))) as RuntimeCliResultEnvelopeV1;
+	}
+	if (invocation.command === 'context.build') {
+		return successEnvelope(
+			invocation,
+			compactCreationContext(invocation.requestId),
+		) as RuntimeCliResultEnvelopeV1;
+	}
+	if (invocation.command === 'mutation.preview') {
+		const request = invocation.request as TaskWorkflowPreviewRequestV1;
+		const result = request.mutationKind === 'task.adopt'
+			? adoptWorkflowPreviewResultV1(request)
+			: identityWorkflowPreviewResultV1(request);
+		return successEnvelope(
+			invocation as CliInvocationV1,
+			result,
+		) as unknown as RuntimeCliResultEnvelopeV1;
+	}
+	if (invocation.command === 'mutation.apply') {
+		return successEnvelope(
+			invocation as CliInvocationV1,
+			taskWorkflowAppliedResultV1(
+				invocation.request as TaskWorkflowApplyRequestV1,
+				invocation.expectedVaultSha256,
+			),
+		) as unknown as RuntimeCliResultEnvelopeV1;
+	}
+	throw new Error(`Task-workflow fixture must not invoke ${invocation.command}`);
+}
+
+function runtimeCapabilityFailureEnvelope(
+	invocation: RuntimeCliInvocationV1,
+): RuntimeCliResultEnvelopeV1 {
+	return capabilityFailureEnvelope(
+		invocation as CliInvocationV1,
+	) as unknown as RuntimeCliResultEnvelopeV1;
 }
 
 function successEnvelope(invocation: CliInvocationV1, result: unknown): CliResultEnvelopeV1 {

@@ -5,14 +5,9 @@ import { createInterface } from 'node:readline';
 
 import type {
 	CapabilityAdvertisementV1,
-	CapabilityIdV1,
-	CliResultEnvelopeV1,
 	ContextPackV1,
 	ContextRequestV1,
-	MutationApplyRequestV1,
 	MutationPreviewRequestV1,
-	MutationPreviewResultV1,
-	MutationResultV1,
 	OperonCatalogV1,
 	PlacementCandidateRequestV1,
 	PlacementCandidatesV1,
@@ -31,6 +26,9 @@ import type {
 	TimerReadRequestV1,
 	TimerReadResultV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
+import type {
+	IdentityPlaceholderCreateSpecV1,
+} from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
 import {
 	CONTRACT_LIMITS_V1,
 	OPERON_ID_PATTERN_V1,
@@ -51,6 +49,19 @@ import {
 	parseCliArgsV1,
 	sanitizeTerminalTextV1,
 } from './client';
+import type {
+	RuntimeCapabilityAdvertisementV1,
+	RuntimeCliResultEnvelopeV1,
+	RuntimeMutationApplyRequestV1,
+	RuntimeMutationPreviewRequestV1,
+	RuntimeMutationPreviewResultV1,
+	RuntimeMutationResultV1,
+	RuntimeSealedMutationPlanV1,
+} from './runtime-contract-compatibility';
+import { isTaskWorkflowPlanV1 } from './runtime-contract-compatibility';
+import { admitRuntimeMutationPreviewPlanV1 } from './runtime-contract-compatibility';
+
+type RuntimeCapabilityIdV1 = RuntimeCapabilityAdvertisementV1['id'];
 import type { PersistentReadTransportV1 } from './persistent-read-client';
 import { createPersistentReadTransportV1 } from './persistent-read-feature';
 import {
@@ -228,7 +239,7 @@ interface LocalResultEnvelopeV1 {
 export interface PublicCommandOutcomeV1 {
 	exitCode: number;
 	json: boolean;
-	envelope: CliResultEnvelopeV1 | LocalResultEnvelopeV1;
+	envelope: RuntimeCliResultEnvelopeV1 | LocalResultEnvelopeV1;
 	human: string;
 	/** Internal session handoff; never serialized by the public command writer. */
 	_recoveryPlanRef?: string;
@@ -257,7 +268,7 @@ export interface PublicCommandPortsV1 {
 	/** Internal Windows broker seam used by platform acceptance tests. */
 	_windowsBrokerClient?: WindowsBrokerClientPortV1;
 	/** Internal command-scope capability discovery cache; never serialized. */
-	_capabilityAdvertisements?: CapabilityAdvertisementV1[];
+	_capabilityAdvertisements?: RuntimeCapabilityAdvertisementV1[];
 }
 
 const CONVENIENCE_COMMAND_SET = new Set<string>(OPERON_CLI_CONVENIENCE_COMMANDS_V1);
@@ -499,18 +510,26 @@ async function runFilterQueryCommand(
 		...(readFlag(argv, '--timeout-ms') ? ['--timeout-ms', readFlag(argv, '--timeout-ms')!] : []),
 		...(readFlag(argv, '--obsidian-bin') ? ['--obsidian-bin', readFlag(argv, '--obsidian-bin')!] : []),
 	];
-	const capabilities = await runRuntimeCommand(
-		['capabilities', ...targetArgs, '--json'],
-		ports,
-	);
+	const capabilities = ports._capabilityAdvertisements
+		? undefined
+		: await runRuntimeCommand(
+			['capabilities', ...targetArgs, '--json'],
+			ports,
+		);
 	if (
-		capabilities.exitCode !== 0
-		|| capabilities.envelope.kind !== 'cli-result'
-		|| !capabilities.envelope.ok
+		capabilities !== undefined
+		&& (
+			capabilities.exitCode !== 0
+			|| capabilities.envelope.kind !== 'cli-result'
+			|| !capabilities.envelope.ok
+		)
 	) return { ...capabilities, json: argv.includes('--json') };
-	const advertisements = Array.isArray(capabilities.envelope.result)
-		? capabilities.envelope.result as CapabilityAdvertisementV1[]
-		: [];
+	const advertisements = ports._capabilityAdvertisements
+		?? (capabilities?.envelope.kind === 'cli-result'
+			&& capabilities.envelope.ok
+			&& Array.isArray(capabilities.envelope.result)
+			? capabilities.envelope.result as RuntimeCapabilityAdvertisementV1[]
+			: []);
 	const advertisement = advertisements.find(item => item.id === 'tasks.filter-query');
 	if (advertisement?.availability !== 'available') {
 		return localFailure(
@@ -581,7 +600,7 @@ async function runRuntimeCommand(
 				: {}),
 		});
 		recordBenchmark();
-		let envelope: CliResultEnvelopeV1 = {
+		let envelope: RuntimeCliResultEnvelopeV1 = {
 			...outcome.envelope,
 			...(resolved.profile ? {
 				client: {
@@ -598,13 +617,18 @@ async function runRuntimeCommand(
 			&& isMutationPreviewSuccess(envelope.result)
 		) {
 			const planPersistenceStartedAt = performance.now();
+			const admittedPlan = admitRuntimeMutationPreviewPlanV1(
+				outcome.invocation.request,
+				envelope.result.plan,
+			);
+			if (!admittedPlan.ok) throw new Error('PLAN_MALFORMED');
 			assertResolvedVaultCommandScopeV1(resolved.target);
 			const record = storeMutationPlanV1({
 				vaultPath: resolved.canonicalPath,
 				vaultSha256: outcome.invocation.expectedVaultSha256,
 				...(resolved.profile ? { profile: resolved.profile } : {}),
 				request: outcome.invocation.request,
-				plan: envelope.result.plan,
+				plan: admittedPlan.value,
 			}, ports.configRoot ?? operonCliConfigRootV1());
 			benchmarkSpan?.(
 				'plan-persistence',
@@ -1032,7 +1056,7 @@ async function runConvenienceCommand(
 	}
 	if (targetPolicy === 'forbidden' && intent.target) throw new Error('TARGET_NOT_ALLOWED');
 	const requestId = intent.requestId ?? parsed.values['--request-id'] ?? randomUUID();
-	const request: MutationPreviewRequestV1 = {
+	const request = {
 		contractVersion: 1,
 		requestId,
 		kind: 'mutation-preview',
@@ -1042,12 +1066,12 @@ async function runConvenienceCommand(
 		capability: mapping.capability,
 		mutationKind: mapping.mutationKind,
 		...(intent.target ? { target: intent.target } : {}),
-		spec: spec as MutationPreviewRequestV1['spec'],
+		spec,
 		authorization: {
 			basis: 'user-explicit-request',
 			reason: intent.reason ?? `The user requested Operon ${command}.`,
 		},
-	};
+	} as RuntimeMutationPreviewRequestV1;
 	const runtimeArgs = [
 		'mutation',
 		'preview',
@@ -1068,8 +1092,11 @@ async function applyFileTaskIdentityPlaceholderPolicyV1(
 	spec: CreateTaskSpecV1,
 	values: Record<string, string>,
 	ports: PublicCommandPortsV1,
-): Promise<CreateTaskSpecV1> {
-	if (!spec.items.some(item => item.target.representation === 'file')) return spec;
+): Promise<CreateTaskSpecV1 | IdentityPlaceholderCreateSpecV1> {
+	if (
+		spec.items.length === 0
+		|| !spec.items.every(item => item.target.representation === 'file')
+	) return spec;
 	const scopedPorts = withResolvedRuntimeTargetV1(values, ports);
 	const runtimeTargetArgs = runtimeTargetArgsFor(values, scopedPorts._resolvedTarget);
 	const capabilities = scopedPorts._capabilityAdvertisements
@@ -1089,7 +1116,7 @@ async function applyFileTaskIdentityPlaceholderPolicyV1(
 	) return spec;
 	const advertisements = scopedPorts._capabilityAdvertisements
 		?? (capabilities?.envelope.kind === 'cli-result' && capabilities.envelope.ok
-			? capabilities.envelope.result as CapabilityAdvertisementV1[]
+			? capabilities.envelope.result as RuntimeCapabilityAdvertisementV1[]
 			: []);
 	const advertisement = advertisements
 		.find(item => item.id === 'tasks.create.identity-placeholders');
@@ -1248,17 +1275,21 @@ async function runCompactBatchCreationCommand(
 }
 
 function inspectCompactBatchSealedPlanV1(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	expectedSpec: Extract<MutationPreviewRequestV1['spec'], { operation: 'create' }>,
 ): { sameSourceAtomicGroup: boolean } {
-	const expectedItemRefs = expectedSpec.items.map(item => item.itemRef);
+	const boundExpectedSpec = isTaskWorkflowPlanV1(plan)
+		&& plan.capability === 'tasks.create.identity-placeholders'
+		? withFileTaskIdentityPlaceholderPolicyV1(expectedSpec, true)
+		: expectedSpec;
+	const expectedItemRefs = boundExpectedSpec.items.map(item => item.itemRef);
 	const effectItemRefs = new Set(plan.createEffects?.map(effect => effect.itemRef) ?? []);
 	if (
 		plan.mutationKind !== 'task.create'
 		|| plan.spec.operation !== 'create'
 		|| !plan.createEffects
 		|| canonicalJsonV1(toJsonValueV1(plan.spec))
-			!== canonicalJsonV1(toJsonValueV1(expectedSpec))
+			!== canonicalJsonV1(toJsonValueV1(boundExpectedSpec))
 		|| plan.spec.items.length !== expectedItemRefs.length
 		|| plan.createEffects.length !== expectedItemRefs.length
 		|| effectItemRefs.size !== expectedItemRefs.length
@@ -1305,7 +1336,7 @@ function compactPreviewOutcome(
 }
 
 function isExpectedCompactSingleCreationPlanV1(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	expectedSpec: Extract<MutationPreviewRequestV1['spec'], { operation: 'create' }>,
 ): boolean {
 	if (expectedSpec.items.length !== 1 || plan.targets.length !== 1) return false;
@@ -1381,7 +1412,7 @@ function isExpectedCompactSingleCreationPlanV1(
 
 function isCompactPreviewSafeToAutoApply(
 	preview: PublicCommandOutcomeV1,
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	allowApplyTimeValuesProjected = false,
 	requireRoutineRisk = false,
 ): boolean {
@@ -1716,7 +1747,7 @@ export function buildCompactUpdateBatchContextRequestV1(
 }
 
 function isExpectedCompactUpdateBatchPlanV1(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	expectedSpec: GuidedMutationIntentV1['spec'],
 ): boolean {
 	if (
@@ -2352,12 +2383,12 @@ function directSelectorFrom(values: Record<string, string>): {
 }
 
 async function requireDirectMutationCapabilitiesV1(options: {
-	preview: CapabilityIdV1;
-	apply: CapabilityIdV1;
+	preview: RuntimeCapabilityIdV1;
+	apply: RuntimeCapabilityIdV1;
 	previewOnly: boolean;
 	descriptionTarget: boolean;
 	requireCatalog: boolean;
-	additional?: CapabilityIdV1[];
+	additional?: RuntimeCapabilityIdV1[];
 	runtimeTargetArgs: string[];
 	ports: PublicCommandPortsV1;
 	json: boolean;
@@ -2365,7 +2396,7 @@ async function requireDirectMutationCapabilitiesV1(options: {
 	| { ok: true }
 	| { ok: false; outcome: PublicCommandOutcomeV1 }
 > {
-	const required: CapabilityIdV1[] = [
+	const required: RuntimeCapabilityIdV1[] = [
 		options.preview,
 		...(options.previewOnly ? [] : [options.apply]),
 		'tasks.read',
@@ -2395,7 +2426,7 @@ async function requireDirectMutationCapabilitiesV1(options: {
 async function previewAndMaybeApplyDirectIntentV1(options: {
 	command: string;
 	previewCommand: string;
-	expectedMutationKind: SealedMutationPlanV1['mutationKind'];
+	expectedMutationKind: RuntimeSealedMutationPlanV1['mutationKind'];
 	intent: GuidedMutationIntentV1;
 	previewOnly: boolean;
 	parsed: {
@@ -2523,7 +2554,7 @@ async function previewAndMaybeApplyDirectIntentV1(options: {
 
 export function isExpectedDirectSemanticConfirmationPlanV1(
 	preview: PublicCommandOutcomeV1,
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 ): boolean {
 	if (
 		preview.envelope.kind !== 'cli-result'
@@ -2553,8 +2584,8 @@ export function isExpectedDirectSemanticConfirmationPlanV1(
 }
 
 export function isExpectedDirectMutationKindV1(
-	plan: Pick<SealedMutationPlanV1, 'mutationKind'>,
-	expectedMutationKind: SealedMutationPlanV1['mutationKind'],
+	plan: Pick<RuntimeSealedMutationPlanV1, 'mutationKind'>,
+	expectedMutationKind: RuntimeSealedMutationPlanV1['mutationKind'],
 ): boolean {
 	return plan.mutationKind === expectedMutationKind;
 }
@@ -2758,12 +2789,13 @@ async function loadCompactUpdateContextV1(options: {
 }
 
 function isExpectedDirectMutationPlan(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	intent: GuidedMutationIntentV1,
 ): boolean {
 	if (intent.spec.operation === 'adopt-inline') {
 		return isExpectedDirectAdoptPlanV1(plan, intent.spec);
 	}
+	if (isTaskWorkflowPlanV1(plan)) return false;
 	const target = intent.target;
 	const specsMatch = intent.spec.operation === 'set-pinned'
 		? isExpectedDirectPinnedSpec(plan.spec, intent.spec)
@@ -2788,7 +2820,7 @@ function isExpectedDirectMutationPlan(
 }
 
 function isExpectedDirectAdoptPlanV1(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	requested: GuidedMutationIntentV1['spec'],
 ): boolean {
 	if (
@@ -2914,7 +2946,7 @@ function isExpectedDirectTimerSessionSpec(
 	return Object.keys(sealed).every(key => allowed.has(key));
 }
 
-function isDirectTimerSessionNoChange(plan: SealedMutationPlanV1): boolean {
+function isDirectTimerSessionNoChange(plan: RuntimeSealedMutationPlanV1): boolean {
 	return plan.mutationKind === 'timer.session'
 		&& plan.spec.operation === 'update-session'
 		&& plan.spec.expectedTrackers === plan.spec.nextTrackers
@@ -2947,7 +2979,7 @@ function isExpectedDirectPinnedSpec(
 }
 
 function isExpectedCompactUpdatePlan(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	intent: ReturnType<typeof compileCompactUpdateIntentV1>,
 ): boolean {
 	const target = intent.target;
@@ -2962,7 +2994,7 @@ function isExpectedCompactUpdatePlan(
 }
 
 export function isExpectedCompactRecurrencePlan(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	intent: GuidedMutationIntentV1,
 ): boolean {
 	const target = intent.target;
@@ -3047,7 +3079,7 @@ function isExpectedRecurrenceStateV1(value: Record<string, unknown>): boolean {
 }
 
 function isExpectedCompactRelationshipPlan(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	intent: GuidedMutationIntentV1,
 ): boolean {
 	const target = intent.target;
@@ -3444,7 +3476,7 @@ async function runGuidedMaintenanceCommand(
 	};
 	try {
 		const mapping = convenienceMapping(command);
-		const requiredCapabilities: CapabilityIdV1[] = [
+		const requiredCapabilities: RuntimeCapabilityIdV1[] = [
 			OPERON_CLI_MUTATION_CAPABILITIES_V1[mapping.mutationKind].preview,
 			OPERON_CLI_MUTATION_CAPABILITIES_V1[mapping.mutationKind].apply,
 		];
@@ -4550,11 +4582,25 @@ function parseConvenienceCommand(argv: string[]): { command: string; consumed: n
 	return { command: resolved.definition.id, consumed: resolved.consumed };
 }
 
-function convenienceMapping(command: string, spec?: Record<string, unknown>): {
-	mutationKind: keyof typeof OPERON_CLI_MUTATION_CAPABILITIES_V1;
-	capability: MutationPreviewRequestV1['capability'];
+export function convenienceMapping(command: string, spec?: Record<string, unknown>): {
+	mutationKind: RuntimeSealedMutationPlanV1['mutationKind'];
+	capability: RuntimeMutationPreviewRequestV1['capability'];
 	operation: string;
 } {
+	if (command === 'task.create' && isIdentityPlaceholderCreateSpecV1(spec)) {
+		return {
+			mutationKind: 'task.create',
+			capability: 'tasks.create.identity-placeholders',
+			operation: 'create',
+		};
+	}
+	if (command === 'task.adopt') {
+		return {
+			mutationKind: 'task.adopt',
+			capability: 'tasks.adopt.preview',
+			operation: 'adopt-inline',
+		};
+	}
 	if (command === 'task.update' && spec?.operation === 'update-batch') {
 		return {
 			mutationKind: 'task.update',
@@ -4583,7 +4629,6 @@ function convenienceMapping(command: string, spec?: Record<string, unknown>): {
 		'task.pin': ['task.pinned-state', 'set-pinned'],
 		'task.unpin': ['task.pinned-state', 'set-pinned'],
 		'task.delete': ['task.delete', 'delete'],
-		'task.adopt': ['task.adopt', 'adopt-inline'],
 		'task.convert': ['task.convert', 'convert'],
 		'task.relocate': ['task.inline-relocate', 'relocate-inline'],
 		'reminder.add': ['task.reminder-item', 'add'],
@@ -4603,6 +4648,20 @@ function convenienceMapping(command: string, spec?: Record<string, unknown>): {
 		capability: OPERON_CLI_MUTATION_CAPABILITIES_V1[mutationKind].preview,
 		operation: definition[1],
 	};
+}
+
+function isIdentityPlaceholderCreateSpecV1(
+	spec: Record<string, unknown> | undefined,
+): spec is IdentityPlaceholderCreateSpecV1 {
+	return spec?.operation === 'create'
+		&& Array.isArray(spec.items)
+		&& spec.items.length > 0
+		&& spec.items.every(item => (
+			isPlainRecord(item)
+			&& isPlainRecord(item.target)
+			&& item.target.representation === 'file'
+			&& item.target.identityPlaceholderPolicy === 'resolve-operon-id-v1'
+		));
 }
 
 interface CliMutationIntentInputV1 {
@@ -5274,14 +5333,14 @@ function localErrorReason(code: string): string {
 }
 
 function renderPublicRuntimeHuman(
-	envelope: CliResultEnvelopeV1,
+	envelope: RuntimeCliResultEnvelopeV1,
 	options: { suppressMutationRecovery?: boolean } = {},
 ): string {
 	return renderHumanWithOptionsV1(envelope, options);
 }
 
 async function promptForSemanticConfirmation(
-	plan: SealedMutationPlanV1,
+	plan: RuntimeSealedMutationPlanV1,
 	word: string,
 	planRef: string,
 	port?: InteractiveTerminalPortV1,
@@ -5310,7 +5369,7 @@ async function promptForSemanticConfirmation(
 	}
 }
 
-function semanticConfirmationWord(plan: SealedMutationPlanV1): 'MOVE' | 'CONVERT' | 'DELETE' | 'REMOVE' | null {
+function semanticConfirmationWord(plan: RuntimeSealedMutationPlanV1): 'MOVE' | 'CONVERT' | 'DELETE' | 'REMOVE' | null {
 	if (plan.mutationKind === 'task.delete') return 'DELETE';
 	if (
 		plan.mutationKind === 'timer.session'
@@ -5355,20 +5414,20 @@ function assertStoredPlanVaultIdentity(record: {
 }
 
 function requireRecoveryRequest(
-	request: MutationApplyRequestV1 | undefined,
-): MutationApplyRequestV1 {
+	request: RuntimeMutationApplyRequestV1 | undefined,
+): RuntimeMutationApplyRequestV1 {
 	if (!request) throw new Error('RECOVERY_REQUEST_REQUIRED');
 	return request;
 }
 
-function isMutationPreviewSuccess(value: unknown): value is Extract<MutationPreviewResultV1, { ok: true }> {
+function isMutationPreviewSuccess(value: unknown): value is Extract<RuntimeMutationPreviewResultV1, { ok: true }> {
 	return isPlainRecord(value)
 		&& value.kind === 'mutation-preview-result'
 		&& value.ok === true
 		&& isPlainRecord(value.plan);
 }
 
-function isMutationResult(value: unknown): value is MutationResultV1 {
+function isMutationResult(value: unknown): value is RuntimeMutationResultV1 {
 	return isPlainRecord(value) && value.kind === 'mutation-result' && typeof value.status === 'string';
 }
 

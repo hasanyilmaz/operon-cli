@@ -107,6 +107,10 @@ import type {
 	CliResultEnvelopeV1,
 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/cli';
 import type {
+	RuntimeCliCommandV1,
+	RuntimeCliResultEnvelopeV1,
+} from '../../src/runtime-contract-compatibility';
+import type {
 	ContextRevisionV1,
 	OperonCatalogV1,
 	TaskContextV1,
@@ -3381,9 +3385,9 @@ function scriptedGuidedPort(answers: Array<string | null>): {
 }
 
 function successEnvelope(
-	command: CliResultEnvelopeV1['command'],
+	command: RuntimeCliCommandV1,
 	result: unknown,
-): CliResultEnvelopeV1 {
+): RuntimeCliResultEnvelopeV1 {
 	return {
 		contractVersion: 1,
 		kind: 'cli-result',
@@ -3406,7 +3410,7 @@ function successEnvelope(
 		timing: { handlerMs: 1, totalMs: 2 },
 		warnings: [],
 		result,
-	} as CliResultEnvelopeV1;
+	} as RuntimeCliResultEnvelopeV1;
 }
 
 function capabilitiesSuccessEnvelope(

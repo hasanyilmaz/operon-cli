@@ -23,6 +23,7 @@ const declarationEntrypoints = [
 	'src/agent-runtime/public/v1/index.d.ts',
 	'src/agent-runtime/public/v1/developer-api.d.ts',
 	'src/agent-runtime/public/v1/cli.d.ts',
+	'src/agent-runtime/extensions/task-workflows-v1/contracts.d.ts',
 ];
 
 export async function buildContractTypesV1(options = {}) {
@@ -152,7 +153,7 @@ async function normalizeDeclarationImports(root) {
 	for (const file of await listFiles(root)) {
 		const absolutePath = path.join(root, file);
 		const source = await readFile(absolutePath, 'utf8');
-		const normalized = source
+		let normalized = source
 			.replace(
 				/(\bfrom\s+['"])(\.\.?\/[^'"]+)(['"])/gu,
 				(_match, prefix, specifier, suffix) => (
@@ -165,6 +166,19 @@ async function normalizeDeclarationImports(root) {
 					`${prefix}${withJavaScriptExtension(specifier)}${suffix}`
 				),
 			);
+		if (file === 'src/agent-runtime/extensions/task-workflows-v1/contracts.d.ts') {
+			normalized = normalized
+				.replace(/^export declare const TASK_WORKFLOW_CAPABILITY_IDS_V1:.*\n/mu, '')
+				.replace(
+					/^export type TaskWorkflowCapabilityIdV1 = typeof TASK_WORKFLOW_CAPABILITY_IDS_V1\[number\];$/mu,
+					"export type TaskWorkflowCapabilityIdV1 = 'tasks.filter-query' | 'tasks.create.identity-placeholders' | 'tasks.adopt.preview' | 'tasks.adopt.apply';",
+				)
+				.replace(
+					/^export declare const TASK_WORKFLOW_CAPABILITY_REGISTRY_V1:[\s\S]*?(?=^export declare function isTaskWorkflowCapabilityIdV1)/mu,
+					'',
+				)
+				.replace(/^export declare function isTaskWorkflowCapabilityIdV1\(.*\n/mu, '');
+		}
 		if (normalized !== source) await writeFile(absolutePath, normalized, 'utf8');
 	}
 }

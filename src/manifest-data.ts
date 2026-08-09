@@ -15,6 +15,7 @@ import {
 	ERROR_REGISTRY_V1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/primitives';
 import { OPERON_CLI_PACKAGE_NAME } from './package-identity';
+import { TASK_WORKFLOW_CAPABILITY_IDS_V1 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
 
 export const OPERON_CLI_MANIFEST_VERSION_V1 = 1 as const;
 export const COMPACT_UPDATE_FEATURES_V1 = Object.freeze([
@@ -136,6 +137,7 @@ export const OPERON_CLI_MUTATION_CAPABILITIES_V1 = Object.freeze({
 
 export const OPERON_CLI_RUNTIME_CAPABILITIES_V1 = Object.freeze({
 	...CLI_COMMAND_CAPABILITY_V1,
+	'tasks.filter-query': TASK_WORKFLOW_CAPABILITY_IDS_V1[0],
 	'mutation.preview': 'mutation-kind-derived',
 	'mutation.apply': 'mutation-kind-derived',
 });
@@ -236,8 +238,18 @@ const OPERON_CLI_RUNTIME_SCHEMAS_V1 = Object.freeze({
 	'relationships.get': { requestSchema: 'relationship-request', resultSchema: 'relationship-result' },
 	'context.build': { requestSchema: 'context-request', resultSchema: 'context-pack' },
 	'timers.read': { requestSchema: 'timer-read-request', resultSchema: 'timer-read-result' },
-	'mutation.preview': { requestSchema: 'mutation-preview-request', resultSchema: 'mutation-preview-result' },
-	'mutation.apply': { requestSchema: 'mutation-plan-reference', resultSchema: 'mutation-result' },
+	'mutation.preview': {
+		requestSchema: 'mutation-preview-request',
+		resultSchema: 'mutation-preview-result',
+		extensionRequestSchema: 'task-workflow-preview-request',
+		extensionResultSchema: 'task-workflow-preview-result',
+	},
+	'mutation.apply': {
+		requestSchema: 'mutation-plan-reference',
+		resultSchema: 'mutation-result',
+		extensionRequestSchema: 'task-workflow-apply-request',
+		extensionResultSchema: 'task-workflow-mutation-result',
+	},
 });
 
 export const OPERON_CLI_RUNTIME_CONTRACTS_V1 = Object.freeze(
@@ -256,11 +268,20 @@ export const OPERON_CLI_CONVENIENCE_CONTRACTS_V1 = Object.freeze(
 		Object.freeze({
 			mutationKind: OPERON_CLI_CONVENIENCE_MUTATIONS_V1[command],
 			targetPolicy: OPERON_CLI_CONVENIENCE_TARGET_POLICIES_V1[command],
-			intentSchema: 'mutation-intent',
-			previewResultSchema: 'mutation-preview-result',
-			applyResultSchema: 'mutation-result',
+			intentSchema: command === 'task.adopt'
+				? 'task-adopt-preview-intent'
+				: 'mutation-intent',
+			previewResultSchema: command === 'task.adopt'
+				? 'task-workflow-preview-result'
+				: 'mutation-preview-result',
+			applyResultSchema: command === 'task.adopt'
+				? 'task-workflow-mutation-result'
+				: 'mutation-result',
 			...(command === 'task.create'
 				? {
+					extensionPreviewRequestSchema: 'task-workflow-preview-request' as const,
+					extensionPreviewResultSchema: 'task-workflow-preview-result' as const,
+					extensionApplyResultSchema: 'task-workflow-mutation-result' as const,
 					inputFormats: ['json', 'compact', 'compact-lines'] as const,
 					compactGrammarVersion: 1 as const,
 					compactBatchVersion: 1 as const,
@@ -371,6 +392,17 @@ export function createCliManifestBaseV1(version: string) {
 		compatibility: {
 			runtimeApi: { min: 1, max: 1 },
 			cliContract: { min: 1, max: 1 },
+		},
+		runtimeExtensions: {
+			taskWorkflowsV1: {
+				extensionId: 'task-workflows-v1',
+				contractVersion: 1,
+				pluginCheckpointCommit: 'bc3e34f2e7b1acb6f7e52a9f481df295dc179f98',
+				baseContractDigest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
+				baseSchemaManifestAggregateSha256: '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
+				aggregateSha256: '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c',
+				capabilities: [...TASK_WORKFLOW_CAPABILITY_IDS_V1],
+			},
 		},
 		commands: {
 			local: OPERON_CLI_LOCAL_COMMANDS_V1,

@@ -13,21 +13,36 @@ const generatedRoot = path.join(temporaryRoot, 'v1');
 await mkdir(generatedRoot, { recursive: true });
 try {
 	const copied = new Set();
-	for (const sourceRoot of [
-		path.join(projectRoot, 'vendor', 'operon-plugin-v1', 'contracts', 'agent-runtime', 'v1'),
-		path.join(projectRoot, 'schema-source'),
+	for (const [sourceRoot, relativeTarget] of [
+		[path.join(projectRoot, 'vendor', 'operon-plugin-v1', 'contracts', 'agent-runtime', 'v1'), ''],
+		[path.join(projectRoot, 'schema-source'), ''],
+		[
+			path.join(projectRoot, 'vendor', 'operon-plugin-v1', 'contracts', 'agent-runtime', 'extensions', 'task-workflows-v1'),
+			'extensions/task-workflows-v1',
+		],
 	]) {
 		for (const fileName of (await readdir(sourceRoot)).filter(name => name.endsWith('.json')).sort()) {
-			assert.equal(copied.has(fileName), false, `OPERON_CLI_SCHEMA_FILENAME_COLLISION:${fileName}`);
-			copied.add(fileName);
-			const target = path.join(generatedRoot, fileName);
+			const relative = relativeTarget ? path.posix.join(relativeTarget, fileName) : fileName;
+			assert.equal(copied.has(relative), false, `OPERON_CLI_SCHEMA_FILENAME_COLLISION:${relative}`);
+			copied.add(relative);
+			const target = path.join(generatedRoot, relative);
+			await mkdir(path.dirname(target), { recursive: true });
 			await copyFile(path.join(sourceRoot, fileName), target);
 			await chmod(target, 0o644);
 		}
 	}
-	assert.equal(copied.size, 16, 'Generated schema inventory must contain 16 files.');
+	assert.equal(copied.size, 22, 'Generated schema inventory must contain 22 files.');
 	const manifest = JSON.parse(await readFile(path.join(generatedRoot, 'schema-manifest.json'), 'utf8'));
-assert.equal(manifest.aggregateSha256, 'd1ade3d9214c5ad06f3731388c15751d240993045e124da39f09f1a0ba099c4e');
+	assert.equal(manifest.aggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+	const extensionManifest = JSON.parse(await readFile(path.join(
+		generatedRoot,
+		'extensions',
+		'task-workflows-v1',
+		'extension-manifest.json',
+	), 'utf8'));
+	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b');
+	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, manifest.aggregateSha256);
+	assert.equal(extensionManifest.aggregateSha256, '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c');
 	if (mode === '--check') {
 		await assertTreesEqual(generatedRoot, targetRoot);
 	} else {
@@ -54,11 +69,30 @@ assert.equal(manifest.aggregateSha256, 'd1ade3d9214c5ad06f3731388c15751d24099304
 }
 
 async function assertTreesEqual(expectedRoot, actualRoot) {
-	const expected = (await readdir(expectedRoot)).sort();
-	const actual = (await readdir(actualRoot)).sort();
+	const expected = await listFiles(expectedRoot);
+	const actual = await listFiles(actualRoot);
 	assert.deepEqual(actual, expected, 'Generated schema inventory is stale.');
 	for (const file of expected) {
 		assert.deepEqual(await readFile(path.join(actualRoot, file)), await readFile(path.join(expectedRoot, file)), `Generated schema is stale: ${file}`);
 		if (process.platform !== 'win32') assert.equal((await stat(path.join(actualRoot, file))).mode & 0o777, 0o644);
+	}
+}
+
+async function listFiles(root) {
+	const output = [];
+	await walk(root, '');
+	return output.sort();
+
+	async function walk(directory, relativeDirectory) {
+		for (const entry of await readdir(directory, { withFileTypes: true })) {
+			const relative = relativeDirectory
+				? path.posix.join(relativeDirectory, entry.name)
+				: entry.name;
+			if (entry.isDirectory()) await walk(path.join(directory, entry.name), relative);
+			else {
+				assert.equal(entry.isFile(), true, `Generated schema non-file is forbidden: ${relative}`);
+				output.push(relative);
+			}
+		}
 	}
 }

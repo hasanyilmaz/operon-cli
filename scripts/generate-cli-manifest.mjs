@@ -29,8 +29,8 @@ try {
 	const require = createRequire(import.meta.url);
 	const manifestModule = require(modulePath);
 	const schemaRoot = path.join(projectRoot, 'schemas', 'v1');
-	const schemaFiles = (await readdir(schemaRoot)).filter(name => name.endsWith('.json')).sort();
-	assert.equal(schemaFiles.length, 16);
+	const schemaFiles = (await listFiles(schemaRoot)).filter(name => name.endsWith('.json')).sort();
+	assert.equal(schemaFiles.length, 22);
 	const schemas = [];
 	const documents = new Map();
 	for (const fileName of schemaFiles) {
@@ -44,8 +44,28 @@ try {
 		schemas.push({ file: fileName, ...(typeof document?.$id === 'string' ? { id: document.$id } : {}), sha256 });
 	}
 	const runtimeSchemaManifest = JSON.parse(await readFile(path.join(schemaRoot, 'schema-manifest.json'), 'utf8'));
-	assert.equal(runtimeSchemaManifest.aggregateSha256, 'd1ade3d9214c5ad06f3731388c15751d240993045e124da39f09f1a0ba099c4e');
-	const schemaEntrypoints = [...runtimeSchemaManifest.entrypoints, ...CLI_SCHEMA_ENTRYPOINTS_V1].map(entrypoint => {
+	assert.equal(runtimeSchemaManifest.aggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+	const extensionManifest = JSON.parse(await readFile(path.join(
+		schemaRoot,
+		'extensions',
+		'task-workflows-v1',
+		'extension-manifest.json',
+	), 'utf8'));
+	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b');
+	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, runtimeSchemaManifest.aggregateSha256);
+	assert.equal(extensionManifest.aggregateSha256, '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c');
+	for (const record of extensionManifest.documents) {
+		const relative = path.posix.join('extensions/task-workflows-v1', record.file);
+		const bytes = await readFile(path.join(schemaRoot, relative));
+		const document = JSON.parse(bytes.toString('utf8'));
+		assert.equal(document.$id, record.id, `OPERON_CLI_EXTENSION_SCHEMA_ID_MISMATCH:${record.file}`);
+		assert.equal(createHash('sha256').update(bytes).digest('hex'), record.sha256, `OPERON_CLI_EXTENSION_SCHEMA_HASH_MISMATCH:${record.file}`);
+	}
+	const schemaEntrypoints = [
+		...runtimeSchemaManifest.entrypoints,
+		...extensionManifest.entrypoints,
+		...CLI_SCHEMA_ENTRYPOINTS_V1,
+	].map(entrypoint => {
 		const [documentId] = entrypoint.ref.split('#', 1);
 		const found = documents.get(documentId);
 		assert.ok(found, `OPERON_CLI_SCHEMA_ENTRYPOINT_INVALID:${entrypoint.schemaId}`);
@@ -65,7 +85,7 @@ try {
 		schemas,
 		schemaEntrypoints,
 	);
-	assert.equal(manifest.contractDigest, '79ba528ea0f8e249cb9583bc0d9b91bba6293d7b2531051fbecd25c39820c9ef');
+	assert.equal(manifest.contractDigest, 'daaa7cce4b8ada5fd6d0a90a6676be887e854998f1d2ea4f23d7228be795a7ee');
 	const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 	const target = path.join(projectRoot, 'cli-manifest-v1.json');
 	if (mode === '--write') await writeFile(target, serialized, 'utf8');
@@ -84,4 +104,23 @@ function resolveJsonPointer(document, fragment) {
 		current = current[token];
 	}
 	return current;
+}
+
+async function listFiles(root) {
+	const output = [];
+	await walk(root, '');
+	return output.sort();
+
+	async function walk(directory, relativeDirectory) {
+		for (const entry of await readdir(directory, { withFileTypes: true })) {
+			const relative = relativeDirectory
+				? path.posix.join(relativeDirectory, entry.name)
+				: entry.name;
+			if (entry.isDirectory()) await walk(path.join(directory, entry.name), relative);
+			else {
+				assert.equal(entry.isFile(), true, `OPERON_CLI_SCHEMA_NON_FILE:${relative}`);
+				output.push(relative);
+			}
+		}
+	}
 }

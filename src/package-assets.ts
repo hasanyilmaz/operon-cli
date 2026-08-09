@@ -35,7 +35,7 @@ export function listCliSchemaEntrypointsV1(): Array<{ schemaId: string; ref: str
 }
 
 export function readCliSchemaV1(schemaId: string): unknown {
-	if (!/^[A-Za-z0-9._-]+$/u.test(schemaId)) throw new Error('INVALID_SCHEMA_ID');
+	if (!isSafeSchemaPathV1(schemaId)) throw new Error('INVALID_SCHEMA_ID');
 	const fileName = schemaId.endsWith('.json') ? schemaId : `${schemaId}.json`;
 	const manifest = readCliManifestV1();
 	if ((manifest.schemas as Array<{ file: string }>).some(item => item.file === fileName)) {
@@ -97,11 +97,17 @@ function assertCliManifestV1(value: unknown): asserts value is Record<string, un
 	if (new Set(files).size !== files.length || new Set(schemaIds).size !== schemaIds.length) {
 		throw new Error('PACKAGE_MANIFEST_INVALID');
 	}
-	const schemaByFile = new Map(value.schemas.map(item => [item.file, item.sha256]));
+	const schemaByFile = new Map(value.schemas.map(item => [item.file, item]));
 	for (const entrypoint of value.schemaEntrypoints) {
+		const schema = schemaByFile.get(entrypoint.file);
 		if (
-			!entrypoint.ref.includes(`:${entrypoint.file}#`)
-			|| schemaByFile.get(entrypoint.file) !== entrypoint.sha256
+			!schema
+			|| schema.sha256 !== entrypoint.sha256
+			|| typeof schema.id !== 'string'
+			|| (
+				entrypoint.ref !== schema.id
+				&& !entrypoint.ref.startsWith(`${schema.id}#`)
+			)
 		) throw new Error('PACKAGE_MANIFEST_INVALID');
 	}
 }
@@ -120,7 +126,7 @@ function readVerifiedSchemaV1(fileName: string, manifest: Record<string, unknown
 	return JSON.parse(bytes.toString('utf8')) as unknown;
 }
 
-function isSchemaFile(value: unknown): value is { file: string; sha256: string } {
+function isSchemaFile(value: unknown): value is { file: string; id?: string; sha256: string } {
 	return isPlainRecord(value)
 		&& (
 			Object.keys(value).length === 2
@@ -131,7 +137,8 @@ function isSchemaFile(value: unknown): value is { file: string; sha256: string }
 			)
 		)
 		&& typeof value.file === 'string'
-		&& /^[A-Za-z0-9._-]+\.json$/u.test(value.file)
+		&& isSafeSchemaPathV1(value.file)
+		&& value.file.endsWith('.json')
 		&& typeof value.sha256 === 'string'
 		&& /^[a-f0-9]{64}$/u.test(value.sha256);
 }
@@ -153,10 +160,22 @@ function isSchemaEntrypoint(value: unknown): value is {
 		&& typeof value.ref === 'string'
 		&& value.ref.length > 0
 		&& typeof value.file === 'string'
-		&& /^[A-Za-z0-9._-]+\.json$/u.test(value.file)
+		&& isSafeSchemaPathV1(value.file)
+		&& value.file.endsWith('.json')
 		&& typeof value.sha256 === 'string'
 		&& /^[a-f0-9]{64}$/u.test(value.sha256)
 		&& value.stability === 'stable';
+}
+
+function isSafeSchemaPathV1(value: unknown): value is string {
+	if (typeof value !== 'string' || value.length === 0 || value.includes('\\')) return false;
+	if (value.startsWith('/') || value.endsWith('/')) return false;
+	return value.split('/').every(segment => (
+		segment !== ''
+		&& segment !== '.'
+		&& segment !== '..'
+		&& /^[A-Za-z0-9._-]+$/u.test(segment)
+	));
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

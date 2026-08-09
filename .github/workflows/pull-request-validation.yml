@@ -86,7 +86,7 @@ jobs:
         run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" ci --include=dev --no-audit --no-fund
       - if: runner.os != 'Windows' || github.event_name == 'push'
         run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" cache verify
-      - name: Validate frozen main release identity
+      - name: Validate frozen non-release main candidate identity
         if: github.event_name == 'push'
         run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" test
       - name: Validate pull request source
@@ -98,7 +98,7 @@ jobs:
       - name: Validate exact Windows pair
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
         env:
-          OPERON_PLUGIN_CANDIDATE_SHA: f4dedfacefb19f8d608c6c2935f487dbdc0a7bd0
+          OPERON_PLUGIN_CANDIDATE_SHA: bc3e34f2e7b1acb6f7e52a9f481df295dc179f98
         run: |
           $cliSha = git rev-parse HEAD
           node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run validate:windows:pair -- "$env:OPERON_PLUGIN_CANDIDATE_SHA" "$cliSha"

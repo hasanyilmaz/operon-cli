@@ -6,6 +6,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createChildEnvironmentWithPathV1 } from './child-process-environment.mjs';
 import {
+	EXPECTED_PACKAGE_PATHS_V1,
 	assertOperonPackageInventoryV1,
 	inspectPackageTarballV1,
 	normalizeOperonPackageTarballV1,
@@ -14,7 +15,7 @@ import {
 	resolveTrustedWindowsCommandProcessorV1,
 	windowsShimVersionInvocationV1,
 } from './windows-command.mjs';
-import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
+import { OPERON_CLI_MAIN_CANDIDATE_V1 } from './main-candidate-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const npmExecPath = process.env.npm_execpath;
@@ -31,7 +32,7 @@ try {
 		: await createLocalCandidate();
 	assert.equal(pack.name, '@stratejya/operon-cli');
 	assert.equal(pack.version, '1.1.0');
-	assert.equal(pack.files.length, 41);
+	assert.equal(pack.files.length, EXPECTED_PACKAGE_PATHS_V1.length);
 	assertOperonPackageInventoryV1(pack.files.map(file => ({ ...file, path: `package/${file.path}` })));
 	const paths = pack.files.map(file => file.path).sort();
 	for (const forbidden of ['vendor/', 'src/', 'scripts/', 'test/', 'node_modules/']) {
@@ -94,8 +95,8 @@ try {
 		], projectRoot)[0];
 		const tarball = path.join(packRoot, pack.filename);
 		const archive = await normalizeOperonPackageTarballV1(tarball);
-		assert.equal(archive.bytes, OPERON_CLI_RELEASE_V1.tarball.bytes, 'OPERON_CLI_CANDIDATE_BYTES_MISMATCH');
-		assert.equal(archive.sha256, OPERON_CLI_RELEASE_V1.tarball.sha256, 'OPERON_CLI_CANDIDATE_HASH_MISMATCH');
+		assert.equal(archive.bytes, OPERON_CLI_MAIN_CANDIDATE_V1.tarball.bytes, 'OPERON_CLI_CANDIDATE_BYTES_MISMATCH');
+		assert.equal(archive.sha256, OPERON_CLI_MAIN_CANDIDATE_V1.tarball.sha256, 'OPERON_CLI_CANDIDATE_HASH_MISMATCH');
 		pack.size = archive.bytes;
 		pack.files = archive.entries.map(entry => ({
 			path: entry.path.replace(/^package\//u, ''),

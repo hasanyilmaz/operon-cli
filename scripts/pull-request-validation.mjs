@@ -6,13 +6,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createChildEnvironmentWithPathV1 } from './child-process-environment.mjs';
 import {
+	EXPECTED_PACKAGE_PATHS_V1,
 	assertOperonPackageInventoryV1,
 	normalizeOperonPackageTarballV1,
 } from './package-archive.mjs';
 import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PUBLIC_WORKFLOW_SHA256 = 'b2f72563914960ad7f66e12da2da2eb6c00622d2accbfa85d970fb187efc4072';
+const PUBLIC_WORKFLOW_SHA256 = 'ed6c4780cfb5cc619fba5a068de5533fd754ad602a9652180258ad4504771143';
 
 const [command, ...args] = process.argv.slice(2);
 switch (command) {
@@ -48,7 +49,7 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'node scripts/hosted-validation.mjs run-npm',
 		'node scripts/pull-request-validation.mjs candidate-test',
 		'run validate:windows:pair',
-		'OPERON_PLUGIN_CANDIDATE_SHA: f4dedfacefb19f8d608c6c2935f487dbdc0a7bd0',
+		'OPERON_PLUGIN_CANDIDATE_SHA: bc3e34f2e7b1acb6f7e52a9f481df295dc179f98',
 		"github.event.pull_request.head.sha",
 		"github.event_name == 'pull_request'",
 		"github.event_name == 'push'",
@@ -149,7 +150,7 @@ async function candidateTest(npmRoot, outputRoot) {
 	if (source !== candidate) await rename(source, candidate);
 	const archive = await normalizeOperonPackageTarballV1(candidate);
 	assertOperonPackageInventoryV1(archive.entries);
-	assert.equal(archive.entries.length, OPERON_CLI_RELEASE_V1.inventoryEntries, 'OPERON_CLI_PR_CANDIDATE_INVENTORY_MISMATCH');
+	assert.equal(archive.entries.length, EXPECTED_PACKAGE_PATHS_V1.length, 'OPERON_CLI_PR_CANDIDATE_INVENTORY_MISMATCH');
 	const canonical = {
 		package: { name: packed.name, version: packed.version },
 		tarball: { bytes: archive.bytes, sha256: archive.sha256, sha512: archive.sha512 },

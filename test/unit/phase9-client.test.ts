@@ -2184,7 +2184,12 @@ test('terminal apply results remain as 24-hour recovery tombstones and expire ho
 			Date.parse(dispatched.recoveryExpiresAt ?? '') - Date.parse(dispatched.recoveryStartedAt ?? ''),
 			MUTATION_RECOVERY_RETENTION_MS_V1,
 		);
-		const terminal = fakeAppliedMutationResult(plan, dispatchedAt);
+		const terminal = fakeAppliedMutationResult(
+			plan,
+			dispatchedAt,
+			applyRequest.requestId,
+			canonicalVaultIdentityV1(vault).sha256,
+		);
 		assert.equal(recordMutationOutcomeV1(dispatched, applyRequest, terminal, root), 'retained');
 
 		const afterPlanExpiry = readMutationPlanV1(stored.planRef, root, {
@@ -2238,13 +2243,18 @@ test('terminal tombstone accepts receipt replay without changing the exact apply
 		recordMutationOutcomeV1(
 			dispatched,
 			applyRequest,
-			fakeAppliedMutationResult(plan, dispatchedAt),
+			fakeAppliedMutationResult(
+				plan,
+				dispatchedAt,
+				applyRequest.requestId,
+				canonicalVaultIdentityV1(vault).sha256,
+			),
 			root,
 		);
 		const terminal = readMutationPlanV1(stored.planRef, root, { allowExpired: true });
 		const replay = fakeAlreadyAppliedMutationResult(
 			plan,
-			randomUUID(),
+			applyRequest.requestId,
 			dispatchedAt,
 			canonicalVaultIdentityV1(vault).sha256,
 		);
@@ -2813,10 +2823,12 @@ function fakeDeletePreviewRequest(
 function fakeAppliedMutationResult(
 	plan: SealedMutationPlanV1,
 	now: number,
+	requestId: string,
+	vaultIdentityHash: string,
 ): MutationResultV1 {
 	return {
 		contractVersion: 1,
-		requestId: randomUUID(),
+		requestId,
 		kind: 'mutation-result',
 		status: 'applied',
 		mutationMayHaveApplied: true,
@@ -2828,7 +2840,7 @@ function fakeAppliedMutationResult(
 		}],
 		receipt: {
 			contractVersion: 1,
-			vaultIdentityHash: '4'.repeat(64),
+			vaultIdentityHash,
 			clientInstanceId: plan.clientInstanceId,
 			idempotencyKeyHash: plan.idempotencyKeyHash,
 			planHash: plan.planHash,

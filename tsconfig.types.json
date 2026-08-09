@@ -23,6 +23,7 @@
   "files": [
     "vendor/operon-plugin-v1/src/agent-runtime/public/v1/index.ts",
     "vendor/operon-plugin-v1/src/agent-runtime/public/v1/developer-api.ts",
-    "vendor/operon-plugin-v1/src/agent-runtime/public/v1/cli.ts"
+    "vendor/operon-plugin-v1/src/agent-runtime/public/v1/cli.ts",
+    "vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts.ts"
   ]
 }
