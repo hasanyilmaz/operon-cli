@@ -2116,20 +2116,7 @@ test('normal expired plans are pruned while prior apply attempts remain recovera
 			request: previewRequest,
 			plan: expiredPlan,
 		}, root);
-		const expiredApply = await runPublicCommandLineV1([
-			'plan',
-			'apply',
-			unused.planRef,
-			'--json',
-		], { configRoot: root });
-		assert.equal(expiredApply.exitCode, 4);
-		assert.equal(
-			expiredApply.envelope.kind === 'operon-cli-local-result'
-				? expiredApply.envelope.error?.code
-				: undefined,
-			'plan-expired',
-		);
-		assert.equal(pruneExpiredMutationPlansV1(root), 0);
+		assert.equal(pruneExpiredMutationPlansV1(root), 1);
 		assert.throws(() => readMutationPlanV1(unused.planRef, root), /ENOENT/u);
 
 		const recoverablePlan = fakePlan(
@@ -2154,6 +2141,94 @@ test('normal expired plans are pruned while prior apply attempts remain recovera
 		);
 		assert.equal(readMutationPlanV1(recoverable.planRef, root, { allowExpired: true }).planRef, recoverable.planRef);
 		assert.equal(pruneExpiredMutationPlansV1(root), 0);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('incompatible and malformed stored records are isolated without weakening plan-file security', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-plan-isolation-'));
+	try {
+		const vault = await createVault(root, 'Plan Isolation Vault');
+		const vaultSha256 = canonicalVaultIdentityV1(vault).sha256;
+		const now = Date.now();
+		const legacyUnused = await writeLegacyIncompatiblePlanRecordV1(root, vault, vaultSha256, {
+			idempotencyKey: 'legacy-unused-record',
+			protected: false,
+			now,
+		});
+		const legacyProtected = await writeLegacyIncompatiblePlanRecordV1(root, vault, vaultSha256, {
+			idempotencyKey: 'legacy-protected-record',
+			protected: true,
+			now,
+		});
+		await writeFile(
+			path.join(root, 'plans', `${'m'.repeat(32)}.json`),
+			'{malformed-json',
+			{ mode: 0o600 },
+		);
+		secureCreatedFileV1(path.join(root, 'plans', `${'m'.repeat(32)}.json`));
+
+		assert.throws(
+			() => readMutationPlanV1(legacyUnused, root, { allowExpired: true, now }),
+			/STORED_PLAN_INCOMPATIBLE/u,
+		);
+		for (const action of ['show', 'apply', 'recover']) {
+			const outcome = await runPublicCommandLineV1([
+				'plan', action, legacyProtected, '--json',
+			], { configRoot: root });
+			assert.equal(outcome.exitCode, 70);
+			assert.equal(
+				outcome.envelope.kind === 'operon-cli-local-result'
+					? outcome.envelope.error?.code
+					: undefined,
+				'internal-error',
+			);
+			assert.equal(
+				outcome.envelope.kind === 'operon-cli-local-result'
+					? outcome.envelope.error?.details?.reasonCode
+					: undefined,
+				'stored-plan-incompatible',
+			);
+			assert.match(
+				outcome.human,
+				/record was preserved, but this CLI and Runtime pair cannot recover it/u,
+			);
+		}
+
+		const idempotencyKey = 'new-plan-after-isolated-records';
+		const plan = fakePlan(
+			new Date(now - 1_000).toISOString(),
+			new Date(now + 60_000).toISOString(),
+			idempotencyKey,
+		);
+		const stored = storeMutationPlanV1({
+			vaultPath: vault,
+			vaultSha256,
+			request: fakeDeletePreviewRequest(plan, idempotencyKey),
+			plan,
+		}, root);
+		const applyRequest = buildMutationApplyRequestV1(stored, {
+			confirmationToken: confirmationTokenForPlanV1(plan),
+			now: new Date(now).toISOString(),
+		});
+		assert.notEqual(
+			markMutationPlanDispatchedV1(stored, applyRequest, root, now).applyRequest,
+			undefined,
+		);
+		assert.equal((await stat(path.join(root, 'plans', `${legacyUnused}.json`))).isFile(), true);
+		assert.equal((await stat(path.join(root, 'plans', `${legacyProtected}.json`))).isFile(), true);
+
+		if (process.platform !== 'win32') {
+			const insecureRef = 'i'.repeat(32);
+			const insecurePath = path.join(root, 'plans', `${insecureRef}.json`);
+			await writeFile(insecurePath, '{}', { mode: 0o644 });
+			await chmod(insecurePath, 0o644);
+			assert.throws(
+				() => pruneExpiredMutationPlansV1(root, now),
+				/WRONG_MODE/u,
+			);
+		}
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -2714,7 +2789,11 @@ function fakePlan(
 	return plan;
 }
 
-function fakeConfiguredDefaultCreatePlan(): SealedMutationPlanV1 {
+function fakeConfiguredDefaultCreatePlan(options: {
+	idempotencyKey?: string;
+	createdAt?: string;
+	expiresAt?: string;
+} = {}): SealedMutationPlanV1 {
 	const locator = {
 		representation: 'file' as const,
 		filePath: 'Tasks/Configured Default.md',
@@ -2725,12 +2804,14 @@ function fakeConfiguredDefaultCreatePlan(): SealedMutationPlanV1 {
 		planHash: '',
 		clientInstanceId: 'operon-cli-phase9',
 		correlationId: 'phase9-configured-default-correlation',
-		idempotencyKeyHash: '4'.repeat(64),
+		idempotencyKeyHash: createHash('sha256')
+			.update(options.idempotencyKey ?? 'configured-default')
+			.digest('hex'),
 		receiptTargetDigest: '',
 		capability: 'tasks.create.preview',
 		mutationKind: 'task.create',
-		createdAt: '2026-08-05T08:00:00.000Z',
-		expiresAt: '2026-08-05T08:01:00.000Z',
+		createdAt: options.createdAt ?? '2026-08-05T08:00:00.000Z',
+		expiresAt: options.expiresAt ?? '2026-08-05T08:01:00.000Z',
 		targets: [{
 			operonId: 'abc1234',
 			locator,
@@ -2791,6 +2872,57 @@ function fakeConfiguredDefaultCreatePlan(): SealedMutationPlanV1 {
 		}],
 	};
 	return resealPlan(plan);
+}
+
+async function writeLegacyIncompatiblePlanRecordV1(
+	root: string,
+	vaultPath: string,
+	vaultSha256: string,
+	options: { idempotencyKey: string; protected: boolean; now: number },
+): Promise<string> {
+	const createdAt = new Date(options.now - 1_000).toISOString();
+	const expiresAt = new Date(options.now + 60_000).toISOString();
+	const plan = fakeConfiguredDefaultCreatePlan({
+		idempotencyKey: options.idempotencyKey,
+		createdAt,
+		expiresAt,
+	});
+	const planRef = randomUUID().split('-').join('');
+	const record = {
+		version: 1 as const,
+		planRef,
+		vaultPath,
+		vaultSha256,
+		clientInstanceId: plan.clientInstanceId,
+		idempotencyKey: options.idempotencyKey,
+		plan,
+		createdAt,
+		expiresAt,
+	};
+	const applyRequest = buildMutationApplyRequestV1(record, { now: createdAt });
+	const raw = structuredClone({
+		...record,
+		...(options.protected ? { applyRequest } : {}),
+	}) as unknown as Record<string, unknown>;
+	const rawPlan = raw.plan as Record<string, unknown>;
+	const rawSpec = rawPlan.spec as { items: Array<{ target: Record<string, unknown> }> };
+	rawSpec.items[0].target.identityPlaceholderPolicy = 'resolve-operon-id-v1';
+	const rawEffects = rawPlan.createEffects as Array<Record<string, unknown>>;
+	rawEffects[0].templateIdentityAllocations = [];
+	const typedRawPlan = rawPlan as unknown as SealedMutationPlanV1;
+	typedRawPlan.planHash = computeSealedMutationPlanHashV1(typedRawPlan);
+	if (options.protected) {
+		const rawApply = raw.applyRequest as { plan: SealedMutationPlanV1 };
+		rawApply.plan = structuredClone(typedRawPlan);
+	}
+	await mkdir(path.join(root, 'plans'), { recursive: true, mode: 0o700 });
+	await writeFile(
+		path.join(root, 'plans', `${planRef}.json`),
+		`${JSON.stringify(raw)}\n`,
+		{ mode: 0o600 },
+	);
+	secureCreatedFileV1(path.join(root, 'plans', `${planRef}.json`));
+	return planRef;
 }
 
 function resealPlan(plan: SealedMutationPlanV1): SealedMutationPlanV1 {

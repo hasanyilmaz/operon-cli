@@ -158,9 +158,16 @@ export function pruneExpiredMutationPlansV1(
 		const match = /^([A-Za-z0-9_-]{32})\.json$/u.exec(name);
 		if (!match) continue;
 		try {
-			readMutationPlanV1(match[1], root, { allowExpired: true, now });
+			readMutationPlanV1(match[1], root, { now });
 		} catch (error) {
 			if (error instanceof Error && error.message === 'PLAN_EXPIRED') removed += 1;
+			else if (
+				error instanceof Error
+				&& (
+					error.message === 'PLAN_RECOVERY_REQUIRED'
+					|| isIsolatedStoredPlanErrorV1(error)
+				)
+			) continue;
 			else throw error;
 		}
 	}
@@ -172,18 +179,8 @@ export function readMutationPlanV1(
 	root: string = operonCliConfigRootV1(),
 	options: { allowExpired?: boolean; now?: number } = {},
 ): StoredMutationPlanV1 {
-	validatePlanRef(planRef);
 	const path = planPath(planRef, root);
-	assertSecureFileV1(path);
-	const stat = lstatSync(path);
-	if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('PLAN_NOT_SECURE');
-	if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
-		throw new Error('PLAN_WRONG_OWNER');
-	}
-	if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
-		throw new Error('PLAN_WRONG_MODE');
-	}
-	const record = decodeStoredPlan(JSON.parse(readFileSync(path, 'utf8')));
+	const record = decodeStoredPlan(readStoredPlanValueV1(planRef, root));
 	const now = options.now ?? Date.now();
 	if (isProtectedRecoveryRecord(record)) {
 		if (now >= recoveryExpiryMs(record)) {
@@ -309,7 +306,13 @@ export function listRecoverableMutationPlansV1(
 			try {
 				return [readMutationPlanV1(name.slice(0, -5), root, { allowExpired: true })];
 			} catch (error) {
-				if (error instanceof Error && error.message === 'PLAN_EXPIRED') return [];
+				if (
+					error instanceof Error
+					&& (
+						error.message === 'PLAN_EXPIRED'
+						|| isIsolatedStoredPlanErrorV1(error)
+					)
+				) return [];
 				throw error;
 			}
 		})
@@ -503,11 +506,21 @@ function decodeStoredPlan(value: unknown): StoredMutationPlanV1 {
 		|| (value.terminalResult !== undefined && !isPlainRecord(value.terminalResult))
 	) throw new Error('PLAN_MALFORMED');
 	const decodedPlan = decodeRuntimeSealedMutationPlanV1(value.plan);
-	if (!decodedPlan.ok) throw new Error('PLAN_MALFORMED');
+	if (!decodedPlan.ok) {
+		if (isStoredSchemaIncompatibilityV1(decodedPlan.issues)) {
+			throw new Error('STORED_PLAN_INCOMPATIBLE');
+		}
+		throw new Error('PLAN_MALFORMED');
+	}
 	const decodedApply = value.applyRequest === undefined
 		? undefined
 		: decodeRuntimeMutationApplyRequestV1(value.applyRequest);
-	if (decodedApply !== undefined && !decodedApply.ok) throw new Error('PLAN_MALFORMED');
+	if (decodedApply !== undefined && !decodedApply.ok) {
+		if (isStoredSchemaIncompatibilityV1(decodedApply.issues)) {
+			throw new Error('STORED_PLAN_INCOMPATIBLE');
+		}
+		throw new Error('PLAN_MALFORMED');
+	}
 	if (
 		value.clientInstanceId !== decodedPlan.value.clientInstanceId
 		|| value.idempotencyKey === undefined
@@ -602,11 +615,63 @@ function countProtectedRecoveryRecordsV1(
 			candidate = readMutationPlanV1(match[1], root, { allowExpired: true, now });
 		} catch (error) {
 			if (error instanceof Error && error.message === 'PLAN_EXPIRED') continue;
+			if (error instanceof Error && isIsolatedStoredPlanErrorV1(error)) {
+				if (storedPlanMayRequireRecoveryV1(match[1], root)) count += 1;
+				continue;
+			}
 			throw error;
 		}
 		if (isProtectedRecoveryRecord(candidate)) count += 1;
 	}
 	return count;
+}
+
+function readStoredPlanValueV1(planRef: string, root: string): unknown {
+	validatePlanRef(planRef);
+	const path = planPath(planRef, root);
+	assertSecureFileV1(path);
+	const stat = lstatSync(path);
+	if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('PLAN_NOT_SECURE');
+	if (typeof process.getuid === 'function' && stat.uid !== process.getuid()) {
+		throw new Error('PLAN_WRONG_OWNER');
+	}
+	if (process.platform !== 'win32' && (stat.mode & 0o077) !== 0) {
+		throw new Error('PLAN_WRONG_MODE');
+	}
+	try {
+		return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+	} catch (error) {
+		if (error instanceof SyntaxError) throw new Error('PLAN_MALFORMED');
+		throw error;
+	}
+}
+
+function storedPlanMayRequireRecoveryV1(planRef: string, root: string): boolean {
+	let value: unknown;
+	try {
+		value = readStoredPlanValueV1(planRef, root);
+	} catch (error) {
+		if (error instanceof Error && error.message === 'PLAN_MALFORMED') return true;
+		throw error;
+	}
+	if (!isPlainRecord(value)) return true;
+	return value.applyRequest !== undefined
+		|| value.lastOutcome !== undefined
+		|| value.terminalResult !== undefined
+		|| value.recoveryStartedAt !== undefined
+		|| value.recoveryExpiresAt !== undefined;
+}
+
+function isIsolatedStoredPlanErrorV1(error: Error): boolean {
+	return error.message === 'STORED_PLAN_INCOMPATIBLE'
+		|| error.message === 'PLAN_MALFORMED'
+		|| error.message === 'PLAN_UNKNOWN_FIELD';
+}
+
+function isStoredSchemaIncompatibilityV1(
+	issues: Array<{ code: string }>,
+): boolean {
+	return issues.length > 0 && issues.every(item => item.code === 'unknown-field');
 }
 
 interface DispatchCapacityLockV1 {

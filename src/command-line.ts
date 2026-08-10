@@ -5120,6 +5120,7 @@ function localStructuredErrorCodeV1(
 	if (usageCodes.has(reasonCode)) return 'invalid-request';
 	if (reasonCode === 'PLAN_EXPIRED') return 'plan-expired';
 	if (reasonCode === 'RECOVERY_STORE_UNAVAILABLE') return 'receipt-store-unavailable';
+	if (reasonCode === 'STORED_PLAN_INCOMPATIBLE') return 'internal-error';
 	if ([
 		'PLAN_MALFORMED',
 		'PLAN_NOT_SECURE',
@@ -5177,6 +5178,7 @@ function localErrorReason(code: string): string {
 		COMPACT_UPDATE_BATCH_TOO_MANY_ITEMS: 'Compact update line batches accept at most 64 records.',
 		COMPACT_UPDATE_BATCH_UTF8_INVALID: 'Compact update line batch input must be valid UTF-8.',
 		COMPACT_UPDATE_SELECTOR_REQUIRED: 'Choose exactly one task target with --id or --description.',
+		STORED_PLAN_INCOMPATIBLE: 'The stored recovery plan uses an unsupported historical contract. The record was preserved, but this CLI and Runtime pair cannot recover it.',
 		COMPACT_VALUE_QUOTE_REQUIRED: 'Quote every raw value with straight ASCII double quotes.',
 		DIRECT_CAPABILITY_UNAVAILABLE: 'The capabilities required by this direct task operation are unavailable.',
 		FILTER_QUERY_CAPABILITY_UNAVAILABLE: 'The live Runtime does not advertise native saved-filter evaluation.',

@@ -31,7 +31,7 @@ try {
 		? await inspectExternalCandidate(externalCandidate)
 		: await createLocalCandidate();
 	assert.equal(pack.name, '@stratejya/operon-cli');
-	assert.equal(pack.version, '1.1.0');
+	assert.equal(pack.version, '1.1.1');
 	assert.equal(pack.files.length, EXPECTED_PACKAGE_PATHS_V1.length);
 	assertOperonPackageInventoryV1(pack.files.map(file => ({ ...file, path: `package/${file.path}` })));
 	const paths = pack.files.map(file => file.path).sort();
@@ -72,12 +72,12 @@ try {
 		await assertVersion('1.0.7');
 	}
 	install(tarball);
-	await assertVersion('1.1.0');
+	await assertVersion('1.1.1');
 	if (legacyTarball) {
 		install(legacyTarball);
 		await assertVersion('1.0.7');
 		install(tarball);
-		await assertVersion('1.1.0');
+		await assertVersion('1.1.1');
 	}
 	run(['uninstall', '--global', '--prefix', installRoot, '--ignore-scripts', '--no-audit', '--no-fund', '@stratejya/operon-cli'], installRoot);
 	await assertUninstalled();
@@ -119,7 +119,7 @@ try {
 		assert.ok(packageEntry, 'OPERON_CLI_CANDIDATE_PACKAGE_JSON_MISSING');
 		const packagedDocument = JSON.parse(packageEntry.content.toString('utf8'));
 		assert.equal(packagedDocument.name, '@stratejya/operon-cli');
-		assert.equal(packagedDocument.version, '1.1.0');
+		assert.equal(packagedDocument.version, '1.1.1');
 		assert.equal('private' in packagedDocument, false);
 		assert.deepEqual(packagedDocument.publishConfig, {
 			access: 'public',
