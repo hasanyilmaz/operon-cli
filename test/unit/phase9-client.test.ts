@@ -2167,6 +2167,7 @@ test('incompatible and malformed stored records are isolated without weakening p
 			'{malformed-json',
 			{ mode: 0o600 },
 		);
+		secureCreatedFileV1(path.join(root, 'plans', `${'m'.repeat(32)}.json`));
 
 		assert.throws(
 			() => readMutationPlanV1(legacyUnused, root, { allowExpired: true, now }),
@@ -2920,6 +2921,7 @@ async function writeLegacyIncompatiblePlanRecordV1(
 		`${JSON.stringify(raw)}\n`,
 		{ mode: 0o600 },
 	);
+	secureCreatedFileV1(path.join(root, 'plans', `${planRef}.json`));
 	return planRef;
 }
 
