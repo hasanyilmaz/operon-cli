@@ -14,15 +14,44 @@ test('public PR workflow passes the fail-closed policy guard', () => {
 	assertCommandPassed(['workflow-check']);
 });
 
-test('public PR workflow keeps frozen main and external pull request candidate validation separate', async () => {
+test('public PR workflow keeps frozen main and CLI-only pull request validation separate', async () => {
 	const document = await readFile(workflow, 'utf8');
 	assert.match(document, /if: github\.event_name == 'push'\n\s+run: .* run-npm .* test/u);
 	assert.match(document, /if: github\.event_name == 'pull_request' && runner\.os != 'Windows'\n\s+run: .* run-npm .* run prepack/u);
 	assert.match(document, /if: github\.event_name == 'pull_request' && runner\.os != 'Windows'\n\s+run: .* candidate-test/u);
-	assert.match(document, /- name: Validate exact Windows pair\n\s+if: runner\.os == 'Windows' && github\.event_name == 'pull_request'[\s\S]*?run validate:windows:pair/u);
+	assert.match(document, /- name: Validate Windows CLI candidate\n\s+if: runner\.os == 'Windows' && github\.event_name == 'pull_request'\n\s+run: .* run validate:windows:candidate/u);
+	assert.equal(document.includes('run validate:windows:pair'), false);
+	assert.equal(document.includes('OPERON_PLUGIN_CANDIDATE_SHA'), false);
+	assert.equal(document.includes('github.com/hasanyilmaz/operon'), false);
 	assert.match(document, /ref: \$\{\{ github\.event_name == 'pull_request' && github\.event\.pull_request\.head\.sha \|\| github\.sha \}\}/u);
 	assert.equal(document.includes('actions/upload-artifact@'), false);
 	assert.equal(document.includes('npm publish'), false);
+});
+
+test('public PR workflow guard follows the Windows candidate target fail closed', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-pr-windows-target-negative-'));
+	try {
+		const packagePath = path.join(root, 'package.json');
+		const candidatePath = path.join(root, 'windows-candidate-validation.mjs');
+		await writeFile(packagePath, JSON.stringify({
+			scripts: { 'validate:windows:candidate': 'node scripts/windows-candidate-validation.mjs' },
+		}));
+		await writeFile(candidatePath, "console.log('CLI-only candidate');\n");
+		assertCommandPassed(['workflow-check', workflow, packagePath, candidatePath]);
+
+		await writeFile(packagePath, JSON.stringify({
+			scripts: { 'validate:windows:candidate': 'npm run validate:windows:pair' },
+		}));
+		assertCommandFailed(['workflow-check', workflow, packagePath, candidatePath]);
+
+		await writeFile(packagePath, JSON.stringify({
+			scripts: { 'validate:windows:candidate': 'node scripts/windows-candidate-validation.mjs' },
+		}));
+		await writeFile(candidatePath, "const remote = 'github.com/hasanyilmaz/operon';\n");
+		assertCommandFailed(['workflow-check', workflow, packagePath, candidatePath]);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
 });
 
 test('pull request candidate validation fails closed without its trusted npm toolchain', async () => {
