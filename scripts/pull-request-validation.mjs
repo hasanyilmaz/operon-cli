@@ -13,18 +13,24 @@ import {
 import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PUBLIC_WORKFLOW_SHA256 = 'ed6c4780cfb5cc619fba5a068de5533fd754ad602a9652180258ad4504771143';
+const PUBLIC_WORKFLOW_SHA256 = '4e5d707342751776bd70b613dbba737d8d71f875d47e5934288e1863fca9df2e';
 
 const [command, ...args] = process.argv.slice(2);
 switch (command) {
-	case 'workflow-check': await workflowCheck(args[0]); break;
+	case 'workflow-check': await workflowCheck(args[0], args[1], args[2]); break;
 	case 'hosted-identity-check': await hostedIdentityCheck(); break;
 	case 'candidate-test': await candidateTest(requiredPath(args[0]), requiredPath(args[1])); break;
 	default: throw new Error(`OPERON_CLI_PR_COMMAND_INVALID:${command ?? ''}`);
 }
 
-async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'workflows', 'pull-request-validation.yml')) {
+async function workflowCheck(
+	workflowPath = path.join(projectRoot, '.github', 'workflows', 'pull-request-validation.yml'),
+	packagePath = path.join(projectRoot, 'package.json'),
+	windowsCandidatePath = path.join(projectRoot, 'scripts', 'windows-candidate-validation.mjs'),
+) {
 	const document = await readFile(workflowPath, 'utf8');
+	const packageDocument = JSON.parse(await readFile(packagePath, 'utf8'));
+	const windowsCandidate = await readFile(windowsCandidatePath, 'utf8');
 	assert.equal(
 		createHash('sha256').update(document).digest('hex'),
 		PUBLIC_WORKFLOW_SHA256,
@@ -48,8 +54,7 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'node scripts/hosted-validation.mjs install-script-check',
 		'node scripts/hosted-validation.mjs run-npm',
 		'node scripts/pull-request-validation.mjs candidate-test',
-		'run validate:windows:pair',
-		'OPERON_PLUGIN_CANDIDATE_SHA: bc3e34f2e7b1acb6f7e52a9f481df295dc179f98',
+		'run validate:windows:candidate',
 		"github.event.pull_request.head.sha",
 		"github.event_name == 'pull_request'",
 		"github.event_name == 'push'",
@@ -62,7 +67,21 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'id-token:', 'packages: write', 'contents: write', 'write-all', 'read-all', 'secrets.',
 		'npm publish', 'npm stage', 'npm dist-tag', 'provenance', 'NODE_AUTH_TOKEN:', 'NPM_TOKEN:',
 		'actions/cache@', 'actions/upload-artifact@', 'actions/download-artifact@', 'create-candidate',
+		'run validate:windows:pair', 'OPERON_PLUGIN_CANDIDATE_SHA', 'github.com/hasanyilmaz/operon',
 	]) assert.equal(document.includes(forbidden), false, `OPERON_CLI_PR_WORKFLOW_FORBIDDEN_TEXT:${forbidden}`);
+	assert.equal(
+		packageDocument?.scripts?.['validate:windows:candidate'],
+		'node scripts/windows-candidate-validation.mjs',
+		'OPERON_CLI_WINDOWS_CANDIDATE_SCRIPT_MAPPING_INVALID',
+	);
+	for (const forbidden of [
+		'validate:windows:pair', 'operon-validate-windows-pair', 'OPERON_PLUGIN_CANDIDATE_SHA',
+		'github.com/hasanyilmaz/operon', 'git fetch', 'git clone',
+	]) assert.equal(
+		windowsCandidate.includes(forbidden),
+		false,
+		`OPERON_CLI_WINDOWS_CANDIDATE_PROVIDER_DEPENDENCY_FORBIDDEN:${forbidden}`,
+	);
 	assert.doesNotMatch(document, /^\s+[A-Za-z-]+:\s+write\s*$/gmu, 'OPERON_CLI_PR_WRITE_PERMISSION_FORBIDDEN');
 	const allowedActions = new Set([
 		'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',

@@ -95,13 +95,9 @@ jobs:
       - name: Validate pull request package candidate
         if: github.event_name == 'pull_request' && runner.os != 'Windows'
         run: node scripts/pull-request-validation.mjs candidate-test "${{ runner.temp }}/operon-npm" "${{ runner.temp }}/operon-pr-candidate"
-      - name: Validate exact Windows pair
+      - name: Validate Windows CLI candidate
         if: runner.os == 'Windows' && github.event_name == 'pull_request'
-        env:
-          OPERON_PLUGIN_CANDIDATE_SHA: bc3e34f2e7b1acb6f7e52a9f481df295dc179f98
-        run: |
-          $cliSha = git rev-parse HEAD
-          node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run validate:windows:pair -- "$env:OPERON_PLUGIN_CANDIDATE_SHA" "$cliSha"
+        run: node scripts/hosted-validation.mjs run-npm "${{ runner.temp }}/operon-npm" run validate:windows:candidate
       - name: Native Windows evidence for frozen main
         if: runner.os == 'Windows' && github.event_name == 'push'
         run: node scripts/run-typescript-tests.mjs test/hosted
