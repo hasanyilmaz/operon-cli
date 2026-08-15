@@ -319,7 +319,7 @@ async function testBootstrapRunner(): Promise<void> {
 		json: true,
 		consistency: 'live-verified',
 		readinessTimeoutMs: 30_000,
-		obsidianBin: 'obsidian',
+		obsidianBin: process.execPath,
 	},
 	'/Vaults/Work',
 	{
@@ -357,7 +357,7 @@ async function testBootstrapRunner(): Promise<void> {
 			json: true,
 			consistency: 'live-verified',
 			readinessTimeoutMs: 30_000,
-			obsidianBin: 'obsidian',
+			obsidianBin: process.execPath,
 		},
 		'/Vaults/Work',
 		{
