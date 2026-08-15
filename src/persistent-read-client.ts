@@ -1025,7 +1025,13 @@ function readSecureDescriptor(root: string, vaultSha256: string): PersistentDesc
 	) {
 		throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_INSECURE', false);
 	}
-	if (process.platform === 'win32') assertSecureFileV1(descriptorPath);
+	if (process.platform === 'win32') {
+		try {
+			assertSecureFileV1(descriptorPath);
+		} catch {
+			throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_INSECURE', false);
+		}
+	}
 	if (typeof process.getuid === 'function' && pathStat.uid !== process.getuid()) {
 		throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_WRONG_OWNER', false);
 	}
