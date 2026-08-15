@@ -1,17 +1,23 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { createHmac, randomBytes } from 'node:crypto';
-import { copyFile, mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, mkdir, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { createWindowsBrokerClientV1, PersistentReadTransportV1 } from '../../src/persistent-read-client';
+import {
+	bootstrapWindowsPersistentDescriptorV1,
+	createWindowsBrokerClientV1,
+	PersistentReadTransportErrorV1,
+	PersistentReadTransportV1,
+} from '../../src/persistent-read-client';
 import { resolveObsidianExecutableV1, terminateProcessTreeV1 } from '../../src/process-platform';
 import { createCanonicalVaultFenceV1 } from '../../src/protocol';
 import type { CliInvocationV1 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/cli';
 import { decodeCliInvocationV1 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/decode';
 import {
+	assertSecureFileV1,
 	ensureSecureDirectoryV1,
 	inspectCliStorageSecurityV1,
 	repairCliStorageSecurityV1,
@@ -30,11 +36,98 @@ async function run(): Promise<void> {
 	try {
 		await testExecutableResolution(root);
 		await testStorageDaclAndReparsePoints(root);
+		await testBootstrapDescriptorDaclAndFailClosed(root);
 		await testProcessTreeTermination();
 		await testNamedPipeRoundTrip(root);
-		console.log(JSON.stringify({ status: 'passed', platform: 'win32', skipped: 0, assertions: 4 }));
+		console.log(JSON.stringify({
+			status: 'passed',
+			platform: 'win32',
+			skipped: 0,
+			assertions: 5,
+			acceptance: {
+				nativeWindowsDacl: 'passed',
+				secureAtomicDescriptorWrite: 'passed',
+				insecureDescriptorNoBootstrap: 'passed',
+			},
+		}));
 	} finally {
 		await rm(root, { recursive: true, force: true });
+	}
+}
+
+async function testBootstrapDescriptorDaclAndFailClosed(root: string): Promise<void> {
+	const localAppData = path.join(root, 'Bootstrap Local App Data');
+	const requestRoot = path.join(localAppData, 'Operon', 'runtime');
+	const vaultSha256 = 'a'.repeat(64);
+	const descriptorPath = path.join(requestRoot, `persistent-read-${vaultSha256}.json`);
+	const serverInstanceId = 'b'.repeat(64);
+	const authSecret = 'c'.repeat(64);
+	const endpoint = `\\\\.\\pipe\\operon-${'d'.repeat(64)}`;
+	await bootstrapWindowsPersistentDescriptorV1(
+		requestRoot,
+		vaultSha256,
+		async request => Buffer.from(JSON.stringify({
+			kind: 'operon-windows-persistent-bootstrap',
+			bootstrapVersion: 1,
+			ok: true,
+			clientNonce: request.clientNonce,
+			protocolVersion: 1,
+			serverInstanceId,
+			vaultSha256,
+			endpointKind: 'windows-named-pipe',
+			endpoint,
+			authSecret,
+			expiresAt: Date.now() + 60_000,
+			pluginVersion: '3.3.1',
+			apiVersion: 1,
+		})),
+	);
+	assertSecureFileV1(descriptorPath, 'win32');
+	const admittedDescriptor = JSON.parse(await readFile(descriptorPath, 'utf8'));
+	assert.deepEqual(
+		admittedDescriptor,
+		{
+			protocolVersion: 1,
+			serverInstanceId,
+			vaultSha256,
+			endpointKind: 'windows-named-pipe',
+			endpoint,
+			authSecret,
+			expiresAt: admittedDescriptor.expiresAt,
+			pluginVersion: '3.3.1',
+			apiVersion: 1,
+		},
+	);
+	assert.equal((await readdir(requestRoot)).some(name => name.endsWith('.tmp')), false);
+
+	const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
+	assert.ok(systemRoot && path.win32.isAbsolute(systemRoot));
+	const icacls = path.win32.join(systemRoot, 'System32', 'icacls.exe');
+	const weakened = spawnSync(icacls, [descriptorPath, '/inheritance:e'], {
+		encoding: 'utf8',
+		windowsHide: true,
+		shell: false,
+	});
+	assert.equal(weakened.status, 0, weakened.stderr);
+	const previousLocalAppData = process.env.LOCALAPPDATA;
+	process.env.LOCALAPPDATA = localAppData;
+	let bootstrapCalls = 0;
+	try {
+		await assert.rejects(
+			createWindowsBrokerClientV1({
+				vaultSha256,
+				bootstrap: async () => {
+					bootstrapCalls += 1;
+					return Buffer.alloc(0);
+				},
+			}),
+			error => error instanceof PersistentReadTransportErrorV1
+				&& error.message === 'PERSISTENT_DESCRIPTOR_INSECURE',
+		);
+		assert.equal(bootstrapCalls, 0);
+	} finally {
+		if (previousLocalAppData === undefined) delete process.env.LOCALAPPDATA;
+		else process.env.LOCALAPPDATA = previousLocalAppData;
 	}
 }
 

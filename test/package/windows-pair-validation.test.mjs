@@ -69,14 +69,41 @@ test('pair validator accepts only exact non-release Plugin and CLI evidence', ()
 		arch: 'x64',
 		toolchain: { node: 'v24.18.0', npm: '11.12.1' },
 		candidate: { inventory: 48, sha256: '4'.repeat(64) },
-		hosted: { assertions: 4, skipped: 0 },
+		hosted: { assertions: 5, skipped: 0 },
+		acceptance: {
+			portableBootstrap: {
+				strictEnvelopeAndNonce: 'passed',
+				secureAtomicDescriptorContract: 'passed',
+				cachedSecondUse: 'passed',
+				restartAndStaleRefresh: 'passed',
+				concurrentColdStart: 'passed',
+				postFrameNoReplay: 'passed',
+				mutationApplyNoReplay: 'passed',
+				cancellationAndRedaction: 'passed',
+			},
+			nativeBootstrap: {
+				nativeWindowsDacl: 'passed',
+				secureAtomicDescriptorWrite: 'passed',
+				insecureDescriptorNoBootstrap: 'passed',
+			},
+		},
 	};
 	assert.doesNotThrow(() => assertPluginReceiptV1(pluginReceipt, pluginSha));
 	assert.doesNotThrow(() => assertCliReceiptV1(cliReceipt, cliSha));
 	assert.throws(() => assertPluginReceiptV1({ ...pluginReceipt, releaseEligible: true }, pluginSha));
 	assert.throws(() => assertPluginReceiptV1({ ...pluginReceipt, nativeSummary: { ...pluginReceipt.nativeSummary, skipped: 1 } }, pluginSha));
 	assert.throws(() => assertCliReceiptV1({ ...cliReceipt, candidate: { ...cliReceipt.candidate, inventory: 47 } }, cliSha));
-	assert.throws(() => assertCliReceiptV1({ ...cliReceipt, hosted: { assertions: 4, skipped: 1 } }, cliSha));
+	assert.throws(() => assertCliReceiptV1({ ...cliReceipt, hosted: { assertions: 5, skipped: 1 } }, cliSha));
+	assert.throws(() => assertCliReceiptV1({
+		...cliReceipt,
+		acceptance: {
+			...cliReceipt.acceptance,
+			portableBootstrap: {
+				...cliReceipt.acceptance.portableBootstrap,
+				concurrentColdStart: 'failed',
+			},
+		},
+	}, cliSha));
 });
 
 test('pair workflow is read-only, pinned, and delegates to the canonical pair runner', async () => {
@@ -117,6 +144,10 @@ test('pair workflow is read-only, pinned, and delegates to the canonical pair ru
 		'src/agent-runtime/extensions/task-workflows-v1/contracts.ts',
 		'src/agent-runtime/extensions/task-workflows-v1/decode.ts',
 		'contracts/agent-runtime/extensions/task-workflows-v1/extension-manifest.json',
+		'operon:transport-bootstrap',
+		'operon-windows-persistent-bootstrap',
+		'src/agent-runtime/transport/native-cli.ts',
+		'officialObsidianDesktopAcceptance',
 	]) assert.ok(pairRunner.includes(requiredIdentity), `missing pair identity: ${requiredIdentity}`);
 });
 

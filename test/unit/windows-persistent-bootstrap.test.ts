@@ -181,6 +181,91 @@ async function testBootstrapRunner(): Promise<void> {
 	assert.equal(connectCalls, 2);
 	assert.equal(bootstrapCalls, 1);
 
+	let cachedDescriptorAvailable = false;
+	let cachedConnectCalls = 0;
+	let cachedBootstrapCalls = 0;
+	const connectWithCache = async (): Promise<string> => {
+		cachedConnectCalls += 1;
+		if (!cachedDescriptorAvailable) {
+			throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_MISSING', false);
+		}
+		return 'cached-connected';
+	};
+	const populateCache = async (): Promise<void> => {
+		cachedBootstrapCalls += 1;
+		cachedDescriptorAvailable = true;
+	};
+	assert.equal(
+		await connectWindowsPersistentWithBootstrapV1(connectWithCache, populateCache),
+		'cached-connected',
+	);
+	assert.equal(
+		await connectWindowsPersistentWithBootstrapV1(connectWithCache, populateCache),
+		'cached-connected',
+	);
+	assert.equal(cachedConnectCalls, 3);
+	assert.equal(cachedBootstrapCalls, 1);
+
+	let staleDescriptor = true;
+	let refreshCalls = 0;
+	assert.equal(await connectWindowsPersistentWithBootstrapV1(
+		async () => {
+			if (staleDescriptor) {
+				throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_INVALID', false);
+			}
+			return 'refreshed-connected';
+		},
+		async () => {
+			refreshCalls += 1;
+			staleDescriptor = false;
+		},
+	), 'refreshed-connected');
+	assert.equal(refreshCalls, 1);
+
+	let concurrentDescriptorAvailable = false;
+	let releaseConcurrentBootstrap: (() => void) | undefined;
+	const concurrentBootstrapGate = new Promise<void>(resolve => {
+		releaseConcurrentBootstrap = resolve;
+	});
+	let concurrentBootstrapCalls = 0;
+	let concurrentConnectCalls = 0;
+	const concurrentConnections = Array.from({ length: 8 }, () =>
+		connectWindowsPersistentWithBootstrapV1(
+			async () => {
+				concurrentConnectCalls += 1;
+				if (!concurrentDescriptorAvailable) {
+					throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_MISSING', false);
+				}
+				return 'concurrent-connected';
+			},
+			async () => {
+				concurrentBootstrapCalls += 1;
+				await concurrentBootstrapGate;
+				concurrentDescriptorAvailable = true;
+			},
+		));
+	await Promise.resolve();
+	await Promise.resolve();
+	assert.equal(concurrentBootstrapCalls, 8);
+	releaseConcurrentBootstrap?.();
+	assert.deepEqual(
+		await Promise.all(concurrentConnections),
+		Array.from({ length: 8 }, () => 'concurrent-connected'),
+	);
+	assert.equal(concurrentConnectCalls, 16);
+
+	let postFrameBootstrapCalls = 0;
+	await assert.rejects(
+		connectWindowsPersistentWithBootstrapV1(
+			async () => {
+				throw new PersistentReadTransportErrorV1('PERSISTENT_CONNECT_FAILED', true);
+			},
+			async () => { postFrameBootstrapCalls += 1; },
+		),
+		/PERSISTENT_CONNECT_FAILED/u,
+	);
+	assert.equal(postFrameBootstrapCalls, 0);
+
 	connectCalls = 0;
 	bootstrapCalls = 0;
 	await assert.rejects(
@@ -281,5 +366,18 @@ async function testBootstrapRunner(): Promise<void> {
 		},
 	);
 	await assert.rejects(abortedPort(request), /CLI_ABORTED/u);
-	console.log('Windows persistent bootstrap tests passed');
+	console.log(JSON.stringify({
+		kind: 'operon-cli-windows-bootstrap-acceptance-v1',
+		status: 'passed',
+		assertions: {
+			strictEnvelopeAndNonce: 'passed',
+			secureAtomicDescriptorContract: 'passed',
+			cachedSecondUse: 'passed',
+			restartAndStaleRefresh: 'passed',
+			concurrentColdStart: 'passed',
+			postFrameNoReplay: 'passed',
+			mutationApplyNoReplay: 'passed',
+			cancellationAndRedaction: 'passed',
+		},
+	}));
 }
