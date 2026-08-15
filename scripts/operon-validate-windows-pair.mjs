@@ -48,6 +48,10 @@ export async function runWindowsPairValidation(args) {
 		assertPluginReceiptV1(pluginReceipt, pluginSha);
 		assertCliReceiptV1(cliReceipt, cliSha);
 		const decoderParity = await decoderParityV1(pluginCheckout, projectRoot);
+		const bootstrapContractPairing = await bootstrapContractPairingV1(
+			pluginCheckout,
+			projectRoot,
+		);
 		receipt = {
 			kind: 'operon-windows-pair-validation-v1',
 			schemaVersion: 1,
@@ -65,8 +69,11 @@ export async function runWindowsPairValidation(args) {
 			cli: {
 				candidate: cliReceipt.candidate,
 				hosted: cliReceipt.hosted,
+				acceptance: cliReceipt.acceptance,
 			},
 			decoderParity,
+			bootstrapContractPairing,
+			officialObsidianDesktopAcceptance: 'required',
 			trackedClean: true,
 		};
 	} catch (error) {
@@ -138,8 +145,59 @@ export function assertCliReceiptV1(receipt, expectedSha) {
 	assert.deepEqual(receipt?.toolchain, { node: EXPECTED_NODE, npm: EXPECTED_NPM }, 'OPERON_WINDOWS_PAIR_CLI_TOOLCHAIN');
 	assert.equal(receipt?.candidate?.inventory, 48, 'OPERON_WINDOWS_PAIR_CLI_INVENTORY');
 	assert.match(receipt?.candidate?.sha256 ?? '', /^[0-9a-f]{64}$/u, 'OPERON_WINDOWS_PAIR_CLI_TARBALL_SHA');
-	assert.equal(receipt?.hosted?.assertions, 4, 'OPERON_WINDOWS_PAIR_CLI_HOSTED_ASSERTIONS');
+	assert.equal(receipt?.hosted?.assertions, 5, 'OPERON_WINDOWS_PAIR_CLI_HOSTED_ASSERTIONS');
 	assert.equal(receipt?.hosted?.skipped, 0, 'OPERON_WINDOWS_PAIR_CLI_HOSTED_SKIPPED');
+	assert.deepEqual(receipt?.acceptance?.portableBootstrap, {
+		strictEnvelopeAndNonce: 'passed',
+		secureAtomicDescriptorContract: 'passed',
+		cachedSecondUse: 'passed',
+		restartAndStaleRefresh: 'passed',
+		concurrentColdStart: 'passed',
+		postFrameNoReplay: 'passed',
+		mutationApplyNoReplay: 'passed',
+		cancellationAndRedaction: 'passed',
+	}, 'OPERON_WINDOWS_PAIR_CLI_PORTABLE_BOOTSTRAP_ACCEPTANCE');
+	assert.deepEqual(receipt?.acceptance?.nativeBootstrap, {
+		nativeWindowsDacl: 'passed',
+		secureAtomicDescriptorWrite: 'passed',
+		insecureDescriptorNoBootstrap: 'passed',
+	}, 'OPERON_WINDOWS_PAIR_CLI_NATIVE_BOOTSTRAP_ACCEPTANCE');
+}
+
+async function bootstrapContractPairingV1(pluginCheckout, cliRoot) {
+	const sources = {
+		plugin: await readFile(path.join(
+			pluginCheckout,
+			'src/agent-runtime/transport/native-cli.ts',
+		), 'utf8'),
+		cliPort: await readFile(path.join(cliRoot, 'src/client.ts'), 'utf8'),
+		cliDecoder: await readFile(path.join(cliRoot, 'src/persistent-read-client.ts'), 'utf8'),
+	};
+	for (const required of [
+		'operon:transport-bootstrap',
+		'bootstrapVersion',
+		'expectedVaultSha256',
+		'clientNonce',
+	]) {
+		assert.equal(sources.plugin.includes(required), true, `OPERON_WINDOWS_PAIR_PLUGIN_BOOTSTRAP_CONTRACT:${required}`);
+		assert.equal(sources.cliPort.includes(required), true, `OPERON_WINDOWS_PAIR_CLI_BOOTSTRAP_PORT_CONTRACT:${required}`);
+	}
+	for (const required of [
+		'operon-windows-persistent-bootstrap',
+		'windows-named-pipe',
+		'authSecret',
+		'expiresAt',
+	]) {
+		assert.equal(sources.plugin.includes(required), true, `OPERON_WINDOWS_PAIR_PLUGIN_BOOTSTRAP_RESPONSE:${required}`);
+		assert.equal(sources.cliDecoder.includes(required), true, `OPERON_WINDOWS_PAIR_CLI_BOOTSTRAP_DECODER:${required}`);
+	}
+	return {
+		status: 'passed',
+		mode: 'exact-source-contract',
+		pluginHandlerSha256: createHash('sha256').update(sources.plugin).digest('hex'),
+		cliPortSha256: createHash('sha256').update(sources.cliPort).digest('hex'),
+		cliDecoderSha256: createHash('sha256').update(sources.cliDecoder).digest('hex'),
+	};
 }
 
 async function decoderParityV1(pluginCheckout, cliRoot) {

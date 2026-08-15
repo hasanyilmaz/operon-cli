@@ -1817,6 +1817,48 @@ async function testOneShotExecutionAndCleanup(): Promise<void> {
 		assert.equal(cancelledAbortedStage, true);
 		assert.equal(abortedBeforeDispatch.exitCode, 130);
 		assert.equal(abortedBeforeDispatch._applyDispatchEvidence, 'not-started');
+		let postDispatchStageCalls = 0;
+		let postDispatchHandlerCalls = 0;
+		const postDispatchApply = await executeCliV1(applyOptions, {
+			platform: 'win32',
+			clientIdentityPath: applyClientIdentityPath,
+			input: Buffer.from(JSON.stringify(boundApplyRequest)),
+			windowsBrokerClient: {
+				async stage() {
+					postDispatchStageCalls += 1;
+					return { requestToken: brokerToken, stagingReceipt: 'd'.repeat(64) };
+				},
+				async status() {
+					return { state: 'dispatch-started' as const };
+				},
+				async cancel() {
+					return { cancelled: false, state: 'dispatch-started' as const };
+				},
+				close() {},
+			},
+			runProcess: async () => {
+				postDispatchHandlerCalls += 1;
+				return {
+					exitCode: null,
+					signal: 'SIGBREAK',
+					stdout: Buffer.alloc(0),
+					stderr: Buffer.alloc(0),
+					totalMs: 20_000,
+					timedOut: true,
+					overflow: false,
+				};
+			},
+		});
+		assert.equal(postDispatchStageCalls, 1);
+		assert.equal(postDispatchHandlerCalls, 1);
+		assert.equal(postDispatchApply.exitCode, 5);
+		assert.equal(postDispatchApply._applyDispatchEvidence, 'may-have-started');
+		assert.equal(postDispatchApply.envelope.ok, false);
+		if (!postDispatchApply.envelope.ok) {
+			assert.equal(postDispatchApply.envelope.failure.error.code, 'outcome-unknown');
+			assert.equal(postDispatchApply.envelope.failure.error.retryable, false);
+			assert.equal(postDispatchApply.envelope.failure.error.action, 'recover-same-plan');
+		}
 		if (process.platform !== 'win32') {
 			const mismatchedApplyResponse = await executeCliV1(
 				applyOptions,

@@ -38,13 +38,26 @@ export async function runWindowsCandidateValidation() {
 		assert.equal(npmVersion, EXPECTED_NPM, 'OPERON_CLI_WINDOWS_CANDIDATE_NPM_VERSION_MISMATCH');
 		runNode(['scripts/hosted-validation.mjs', 'run-npm', npmRoot, 'ci', '--include=dev', '--no-audit', '--no-fund']);
 		runNode(['scripts/hosted-validation.mjs', 'run-npm', npmRoot, 'cache', 'verify']);
-		runNode(['scripts/hosted-validation.mjs', 'run-npm', npmRoot, 'run', 'prepack']);
+		const prepackOutput = runNode([
+			'scripts/hosted-validation.mjs', 'run-npm', npmRoot, 'run', 'prepack',
+		], { capture: true });
+		process.stdout.write(prepackOutput);
+		const bootstrapAcceptance = parsePassedJsonLineV1(
+			prepackOutput,
+			value => value.kind === 'operon-cli-windows-bootstrap-acceptance-v1',
+		);
+		assertWindowsBootstrapAcceptanceV1(bootstrapAcceptance);
 		runNode(['scripts/pull-request-validation.mjs', 'candidate-test', npmRoot, candidateRoot]);
 		const hostedOutput = runNode(['scripts/run-typescript-tests.mjs', 'test/hosted'], { capture: true });
 		process.stdout.write(hostedOutput);
 		const hosted = parsePassedJsonLineV1(hostedOutput, value => value.platform === 'win32');
 		assert.equal(hosted.skipped, 0, 'OPERON_CLI_WINDOWS_CANDIDATE_HOSTED_SKIP');
-		assert.equal(hosted.assertions, 4, 'OPERON_CLI_WINDOWS_CANDIDATE_HOSTED_ASSERTION_MISMATCH');
+		assert.equal(hosted.assertions, 5, 'OPERON_CLI_WINDOWS_CANDIDATE_HOSTED_ASSERTION_MISMATCH');
+		assert.deepEqual(hosted.acceptance, {
+			nativeWindowsDacl: 'passed',
+			secureAtomicDescriptorWrite: 'passed',
+			insecureDescriptorNoBootstrap: 'passed',
+		}, 'OPERON_CLI_WINDOWS_CANDIDATE_NATIVE_BOOTSTRAP_ACCEPTANCE_MISMATCH');
 		const manifest = JSON.parse(await readFile(path.join(candidateRoot, 'candidate', 'artifact-manifest.json'), 'utf8'));
 		const canonical = manifest?.canonical;
 		assert.deepEqual(canonical?.package, OPERON_CLI_RELEASE_V1.package, 'OPERON_CLI_WINDOWS_CANDIDATE_RELEASE_IDENTITY_MISMATCH');
@@ -68,6 +81,10 @@ export async function runWindowsCandidateValidation() {
 				inventory: canonical.inventory.length,
 			},
 			hosted: { assertions: hosted.assertions, skipped: hosted.skipped },
+			acceptance: {
+				portableBootstrap: bootstrapAcceptance.assertions,
+				nativeBootstrap: hosted.acceptance,
+			},
 			trackedClean: true,
 			releaseEligible: false,
 		};
@@ -112,6 +129,21 @@ export function parsePassedJsonLineV1(output, predicate = () => true) {
 	const value = values.find(candidate => candidate?.status === 'passed' && predicate(candidate));
 	assert.ok(value, 'OPERON_CLI_WINDOWS_CANDIDATE_EVIDENCE_MISSING');
 	return value;
+}
+
+export function assertWindowsBootstrapAcceptanceV1(value) {
+	assert.equal(value?.kind, 'operon-cli-windows-bootstrap-acceptance-v1', 'OPERON_CLI_WINDOWS_BOOTSTRAP_ACCEPTANCE_KIND');
+	assert.equal(value?.status, 'passed', 'OPERON_CLI_WINDOWS_BOOTSTRAP_ACCEPTANCE_STATUS');
+	assert.deepEqual(value?.assertions, {
+		strictEnvelopeAndNonce: 'passed',
+		secureAtomicDescriptorContract: 'passed',
+		cachedSecondUse: 'passed',
+		restartAndStaleRefresh: 'passed',
+		concurrentColdStart: 'passed',
+		postFrameNoReplay: 'passed',
+		mutationApplyNoReplay: 'passed',
+		cancellationAndRedaction: 'passed',
+	}, 'OPERON_CLI_WINDOWS_BOOTSTRAP_ACCEPTANCE_MATRIX');
 }
 
 function exactHeadSha() {

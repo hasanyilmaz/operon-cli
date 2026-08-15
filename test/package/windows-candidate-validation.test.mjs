@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import test from 'node:test';
 
 import {
+	assertWindowsBootstrapAcceptanceV1,
 	assertWindowsCandidateHostV1,
 	parsePassedJsonLineV1,
 	throwValidationFailuresV1,
@@ -32,6 +33,31 @@ test('Windows candidate evidence parser requires a matching passed JSON line', (
 		status: 'passed', platform: 'win32', skipped: 0, assertions: 4,
 	});
 	assert.throws(() => parsePassedJsonLineV1('{"status":"failed"}\n'), /EVIDENCE_MISSING/u);
+});
+
+test('Windows bootstrap acceptance requires every mandatory portable cell', () => {
+	const acceptance = {
+		kind: 'operon-cli-windows-bootstrap-acceptance-v1',
+		status: 'passed',
+		assertions: {
+			strictEnvelopeAndNonce: 'passed',
+			secureAtomicDescriptorContract: 'passed',
+			cachedSecondUse: 'passed',
+			restartAndStaleRefresh: 'passed',
+			concurrentColdStart: 'passed',
+			postFrameNoReplay: 'passed',
+			mutationApplyNoReplay: 'passed',
+			cancellationAndRedaction: 'passed',
+		},
+	};
+	assert.doesNotThrow(() => assertWindowsBootstrapAcceptanceV1(acceptance));
+	assert.throws(
+		() => assertWindowsBootstrapAcceptanceV1({
+			...acceptance,
+			assertions: { ...acceptance.assertions, postFrameNoReplay: 'failed' },
+		}),
+		/ACCEPTANCE_MATRIX/u,
+	);
 });
 
 test('Windows candidate receipt must be absolute and outside the repository', () => {
