@@ -21,6 +21,7 @@ import {
 import {
 	assertSecureFileV1,
 	ensureSecureDirectoryV1,
+	writeSecureJsonAtomicV1,
 } from './secure-storage';
 
 const DESCRIPTOR_MAX_BYTES = 16 * 1024;
@@ -30,6 +31,10 @@ const PROTOCOL_VERSION = 1;
 const HEX_64 = /^[a-f0-9]{64}$/u;
 const UNIX_SOCKET_BASENAME = /^read-[a-f0-9]{48}\.sock$/u;
 const WINDOWS_PIPE = /^\\\\\.\\pipe\\operon-[a-f0-9]{64}$/u;
+const BOOTSTRAP_NONCE = /^[a-f0-9]{32}$/u;
+const WINDOWS_BOOTSTRAP_MAX_BYTES = 4 * 1024;
+const WINDOWS_BOOTSTRAP_VERSION = 1;
+const WINDOWS_BOOTSTRAP_MAX_TTL_MS = 24 * 60 * 60 * 1_000 + 5 * 60 * 1_000;
 const READ_COMMANDS = new Set([
 	'health',
 	'capabilities',
@@ -45,7 +50,7 @@ const READ_COMMANDS = new Set([
 	'timers.read',
 ]);
 
-interface PersistentDescriptorV1 {
+export interface PersistentDescriptorV1 {
 	protocolVersion: 1;
 	serverInstanceId: string;
 	vaultSha256: string;
@@ -56,6 +61,16 @@ interface PersistentDescriptorV1 {
 	pluginVersion: string;
 	apiVersion: 1;
 }
+
+export interface WindowsPersistentBootstrapRequestV1 {
+	bootstrapVersion: 1;
+	expectedVaultSha256: string;
+	clientNonce: string;
+}
+
+export type WindowsPersistentBootstrapPortV1 = (
+	request: WindowsPersistentBootstrapRequestV1,
+) => Promise<Buffer>;
 
 interface PersistentResponseV1 {
 	type: 'response';
@@ -100,6 +115,7 @@ export class PersistentReadTransportErrorV1 extends Error {
 	constructor(
 		code: string,
 		readonly frameSent: boolean,
+		readonly retryable?: boolean,
 	) {
 		super(code);
 		this.name = 'PersistentReadTransportErrorV1';
@@ -314,6 +330,7 @@ export type WindowsBrokerStageStateV1 =
 export interface WindowsBrokerClientOptionsV1 {
 	vaultSha256: string;
 	signal?: AbortSignal;
+	bootstrap?: WindowsPersistentBootstrapPortV1;
 }
 
 export class WindowsBrokerClientV1 {
@@ -326,10 +343,20 @@ export class WindowsBrokerClientV1 {
 		if (process.platform !== 'win32') {
 			throw new PersistentReadTransportErrorV1('WINDOWS_BROKER_PLATFORM_REQUIRED', false);
 		}
-		const connection = await PersistentConnectionV1.connect(
-			persistentEndpointRootV1(),
-			options.vaultSha256,
-			options.signal,
+		const requestRoot = persistentEndpointRootV1();
+		const connection = await connectWindowsPersistentWithBootstrapV1(
+			() => PersistentConnectionV1.connect(
+				requestRoot,
+				options.vaultSha256,
+				options.signal,
+			),
+			options.bootstrap
+				? () => bootstrapWindowsPersistentDescriptorV1(
+					requestRoot,
+					options.vaultSha256,
+					options.bootstrap as WindowsPersistentBootstrapPortV1,
+				)
+				: undefined,
 		);
 		if (connection.endpointKind !== 'windows-named-pipe') {
 			connection.close();
@@ -390,6 +417,191 @@ export class WindowsBrokerClientV1 {
 	close(): void {
 		this.connection.close();
 	}
+}
+
+export async function connectWindowsPersistentWithBootstrapV1<T>(
+	connect: () => Promise<T>,
+	bootstrap?: () => Promise<void>,
+): Promise<T> {
+	try {
+		return await connect();
+	} catch (error) {
+		if (!bootstrap || !canBootstrapAfterPersistentFailureV1(error)) throw error;
+		await bootstrap();
+		return await connect();
+	}
+}
+
+export async function bootstrapWindowsPersistentDescriptorV1(
+	requestRoot: string,
+	vaultSha256: string,
+	bootstrap: WindowsPersistentBootstrapPortV1,
+	now = Date.now(),
+	storage: {
+		write?: (path: string, descriptor: PersistentDescriptorV1) => void;
+		read?: (root: string, vaultSha256: string) => PersistentDescriptorV1;
+	} = {},
+): Promise<void> {
+	if (!HEX_64.test(vaultSha256)) {
+		throw new PersistentReadTransportErrorV1('PERSISTENT_VAULT_SHA_INVALID', false);
+	}
+	const clientNonce = randomBytes(16).toString('hex');
+	const request: WindowsPersistentBootstrapRequestV1 = {
+		bootstrapVersion: WINDOWS_BOOTSTRAP_VERSION,
+		expectedVaultSha256: vaultSha256,
+		clientNonce,
+	};
+	const raw = await bootstrap(request);
+	if (raw.byteLength < 2 || raw.byteLength > WINDOWS_BOOTSTRAP_MAX_BYTES) {
+		throw new PersistentReadTransportErrorV1('PERSISTENT_BOOTSTRAP_RESPONSE_INVALID', false);
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(raw).trim());
+	} catch {
+		throw new PersistentReadTransportErrorV1('PERSISTENT_BOOTSTRAP_RESPONSE_INVALID', false);
+	}
+	const descriptor = decodeWindowsPersistentBootstrapResponseV1(parsed, request, requestRoot, now);
+	let admitted: PersistentDescriptorV1;
+	try {
+		(storage.write ?? ((descriptorPath, candidate) => {
+			writeSecureJsonAtomicV1(descriptorPath, candidate, 'win32');
+		}))(
+			path.join(requestRoot, `persistent-read-${vaultSha256}.json`),
+			descriptor,
+		);
+		admitted = (storage.read ?? readSecureDescriptor)(requestRoot, vaultSha256);
+	} catch {
+		throw new PersistentReadTransportErrorV1(
+			'PERSISTENT_BOOTSTRAP_SECURITY_FAILED',
+			false,
+		);
+	}
+	if (
+		admitted.serverInstanceId !== descriptor.serverInstanceId
+		|| admitted.endpoint !== descriptor.endpoint
+		|| admitted.authSecret !== descriptor.authSecret
+	) {
+		throw new PersistentReadTransportErrorV1('PERSISTENT_BOOTSTRAP_DESCRIPTOR_CHANGED', false);
+	}
+}
+
+export function decodeWindowsPersistentBootstrapResponseV1(
+	value: unknown,
+	request: WindowsPersistentBootstrapRequestV1,
+	requestRoot: string,
+	now = Date.now(),
+): PersistentDescriptorV1 {
+	throwIfWindowsPersistentBootstrapFailureV1(value, request);
+	return decodeWindowsPersistentBootstrapV1(value, request, requestRoot, now);
+}
+
+function throwIfWindowsPersistentBootstrapFailureV1(
+	value: unknown,
+	request: WindowsPersistentBootstrapRequestV1,
+): void {
+	if (!isRecord(value) || value.ok !== false) return;
+	const codes = new Set([
+		'starting',
+		'backoff',
+		'unavailable',
+		'closed',
+		'vault-mismatch',
+		'unsupported-platform',
+		'unsupported-version',
+	]);
+	if (
+		Object.keys(value).length !== 7
+		|| !Object.keys(value).every(key => [
+			'kind',
+			'bootstrapVersion',
+			'ok',
+			'clientNonce',
+			'code',
+			'retryable',
+			'apiVersion',
+		].includes(key))
+		|| value.kind !== 'operon-windows-persistent-bootstrap'
+		|| value.bootstrapVersion !== WINDOWS_BOOTSTRAP_VERSION
+		|| value.clientNonce !== request.clientNonce
+		|| value.apiVersion !== 1
+		|| typeof value.code !== 'string'
+		|| !codes.has(value.code)
+		|| typeof value.retryable !== 'boolean'
+	) {
+		throw new PersistentReadTransportErrorV1('PERSISTENT_BOOTSTRAP_RESPONSE_INVALID', false);
+	}
+	throw new PersistentReadTransportErrorV1(
+		`PERSISTENT_BOOTSTRAP_${value.code.toUpperCase().replace(/-/gu, '_')}`,
+		false,
+		value.retryable,
+	);
+}
+
+export function decodeWindowsPersistentBootstrapV1(
+	value: unknown,
+	request: WindowsPersistentBootstrapRequestV1,
+	requestRoot: string,
+	now = Date.now(),
+): PersistentDescriptorV1 {
+	if (
+		!isRecord(value)
+		|| Object.keys(value).length !== 13
+		|| !Object.keys(value).every(key => [
+			'kind',
+			'bootstrapVersion',
+			'ok',
+			'clientNonce',
+			'protocolVersion',
+			'serverInstanceId',
+			'vaultSha256',
+			'endpointKind',
+			'endpoint',
+			'authSecret',
+			'expiresAt',
+			'pluginVersion',
+			'apiVersion',
+		].includes(key))
+		|| value.kind !== 'operon-windows-persistent-bootstrap'
+		|| value.bootstrapVersion !== WINDOWS_BOOTSTRAP_VERSION
+		|| value.ok !== true
+		|| value.clientNonce !== request.clientNonce
+		|| !BOOTSTRAP_NONCE.test(request.clientNonce)
+	) {
+		throw new PersistentReadTransportErrorV1('PERSISTENT_BOOTSTRAP_RESPONSE_INVALID', false);
+	}
+	const candidate = {
+		protocolVersion: value.protocolVersion,
+		serverInstanceId: value.serverInstanceId,
+		vaultSha256: value.vaultSha256,
+		endpointKind: value.endpointKind,
+		endpoint: value.endpoint,
+		authSecret: value.authSecret,
+		expiresAt: value.expiresAt,
+		pluginVersion: value.pluginVersion,
+		apiVersion: value.apiVersion,
+	};
+	if (
+		!isDescriptor(candidate, request.expectedVaultSha256, requestRoot, now)
+		|| candidate.endpointKind !== 'windows-named-pipe'
+		|| candidate.expiresAt > now + WINDOWS_BOOTSTRAP_MAX_TTL_MS
+	) {
+		throw new PersistentReadTransportErrorV1('PERSISTENT_BOOTSTRAP_RESPONSE_INVALID', false);
+	}
+	return candidate;
+}
+
+function canBootstrapAfterPersistentFailureV1(error: unknown): boolean {
+	if (!(error instanceof PersistentReadTransportErrorV1) || error.frameSent) return false;
+	return new Set([
+		'PERSISTENT_DESCRIPTOR_MISSING',
+		'PERSISTENT_DESCRIPTOR_INVALID',
+		'PERSISTENT_CONNECT_FAILED',
+		'PERSISTENT_SOCKET_ERROR',
+		'PERSISTENT_SOCKET_CLOSED',
+		'PERSISTENT_HANDSHAKE_FAILED',
+		'PERSISTENT_HANDSHAKE_INVALID',
+	]).has(error.message);
 }
 
 export async function createWindowsBrokerClientV1(
@@ -831,7 +1043,12 @@ function readSecureDescriptor(root: string, vaultSha256: string): PersistentDesc
 			|| openedStat.size < 2
 			|| openedStat.size > DESCRIPTOR_MAX_BYTES
 		) throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_CHANGED', false);
-		const parsed = JSON.parse(readFileSync(descriptorFd, 'utf8')) as unknown;
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(readFileSync(descriptorFd, 'utf8')) as unknown;
+		} catch {
+			throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_INVALID', false);
+		}
 		if (!isDescriptor(parsed, vaultSha256, root)) {
 			throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_INVALID', false);
 		}
@@ -892,6 +1109,7 @@ function isDescriptor(
 	value: unknown,
 	vaultSha256: string,
 	root: string,
+	now = Date.now(),
 ): value is PersistentDescriptorV1 {
 	return isRecord(value)
 		&& Object.keys(value).length === 9
@@ -925,7 +1143,7 @@ function isDescriptor(
 		&& HEX_64.test(value.authSecret)
 		&& typeof value.expiresAt === 'number'
 		&& Number.isSafeInteger(value.expiresAt)
-		&& value.expiresAt > Date.now()
+		&& value.expiresAt > now
 		&& typeof value.pluginVersion === 'string'
 		&& value.pluginVersion.length > 0;
 }

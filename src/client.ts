@@ -45,6 +45,7 @@ import {
 import {
 	PersistentReadTransportErrorV1,
 	type PersistentReadTransportV1,
+	type WindowsPersistentBootstrapPortV1,
 	createWindowsBrokerClientV1,
 } from './persistent-read-client';
 import {
@@ -320,6 +321,11 @@ export async function executeCliV1(
 		if (platform === 'win32') {
 			windowsBroker = ports.windowsBrokerClient ?? await createWindowsBrokerClientV1({
 				vaultSha256: invocation.expectedVaultSha256,
+				bootstrap: createWindowsPersistentBootstrapPortV1(
+					options,
+					built.canonicalVaultPath,
+					ports,
+				),
 			});
 			const staged = await windowsBroker.stage(invocation);
 			windowsRequestToken = staged.requestToken;
@@ -641,6 +647,56 @@ export async function executeCliV1(
 		}
 		windowsBroker?.close();
 	}
+}
+
+export function createWindowsPersistentBootstrapPortV1(
+	options: CliOptionsV1,
+	canonicalVaultPath: string,
+	ports: {
+		runProcess?: ProcessRunnerV1;
+		signal?: AbortSignal;
+	},
+): WindowsPersistentBootstrapPortV1 {
+	return async request => {
+		if (ports.signal?.aborted) throw new Error('CLI_ABORTED');
+		const result = await (ports.runProcess ?? runObsidianProcessV1)(
+			resolveObsidianExecutableV1(options.obsidianBin, { cwd: canonicalVaultPath }),
+			[
+				'operon:transport-bootstrap',
+				`vault=${path.basename(canonicalVaultPath)}`,
+				`bootstrapVersion=${request.bootstrapVersion}`,
+				`expectedVaultSha256=${request.expectedVaultSha256}`,
+				`clientNonce=${request.clientNonce}`,
+			],
+			{
+				cwd: canonicalVaultPath,
+				timeoutMs: options.readinessTimeoutMs + 5_000,
+				...(ports.signal ? { signal: ports.signal } : {}),
+			},
+		);
+		if (ports.signal?.aborted || result.spawnErrorCode === 'ABORTED') {
+			throw new Error('CLI_ABORTED');
+		}
+		if (
+			result.timedOut
+			|| result.overflow
+			|| result.spawnErrorCode
+			|| result.exitCode !== 0
+		) {
+			const diagnostic = sanitizeProcessDiagnosticV1(
+				result.stderr.byteLength > 0
+					? result.stderr.toString('utf8')
+					: result.stdout.toString('utf8'),
+			);
+			throw new PersistentReadTransportErrorV1(
+				isObsidianHandlerUnavailableDiagnosticV1(diagnostic)
+					? 'PERSISTENT_BOOTSTRAP_HANDLER_UNAVAILABLE'
+					: 'PERSISTENT_BOOTSTRAP_TRANSPORT_UNAVAILABLE',
+				false,
+			);
+		}
+		return result.stdout;
+	};
 }
 
 async function mutationDispatchMayHaveStartedV1(
@@ -1206,6 +1262,62 @@ function classifyClientExecutionError(error: unknown): {
 		};
 	}
 	if (error instanceof PersistentReadTransportErrorV1) {
+		if (code === 'PERSISTENT_BOOTSTRAP_HANDLER_UNAVAILABLE') {
+			return {
+				stage: 'transport',
+				code: 'transport-unavailable',
+				reason: 'Secure Windows Runtime bootstrap requires a matching Operon Plugin and CLI version.',
+				retryable: false,
+			};
+		}
+		if (code === 'PERSISTENT_BOOTSTRAP_STARTING' || code === 'PERSISTENT_BOOTSTRAP_BACKOFF') {
+			return {
+				stage: 'readiness',
+				code: 'live-settling',
+				reason: 'The authenticated Operon Runtime transport is still starting.',
+				retryable: true,
+			};
+		}
+		if (code === 'PERSISTENT_BOOTSTRAP_VAULT_MISMATCH') {
+			return {
+				stage: 'transport',
+				code: 'transport-unavailable',
+				reason: 'The secure Windows Runtime bootstrap refused a different vault identity.',
+				retryable: false,
+			};
+		}
+		if (code === 'PERSISTENT_BOOTSTRAP_UNSUPPORTED_VERSION') {
+			return {
+				stage: 'transport',
+				code: 'transport-unavailable',
+				reason: 'Secure Windows Runtime bootstrap requires a matching Operon Plugin and CLI version.',
+				retryable: false,
+			};
+		}
+		if (code === 'PERSISTENT_BOOTSTRAP_UNSUPPORTED_PLATFORM') {
+			return {
+				stage: 'capability',
+				code: 'capability-unavailable',
+				reason: 'Secure Windows Runtime bootstrap is available only on Windows desktop.',
+				retryable: false,
+			};
+		}
+		if (code === 'PERSISTENT_BOOTSTRAP_SECURITY_FAILED') {
+			return {
+				stage: 'transport',
+				code: 'desktop-unavailable',
+				reason: 'The owner-only Windows Runtime descriptor could not be secured.',
+				retryable: false,
+			};
+		}
+		if (code.startsWith('PERSISTENT_BOOTSTRAP_')) {
+			return {
+				stage: 'transport',
+				code: 'transport-unavailable',
+				reason: 'The secure Windows Runtime bootstrap was not admitted.',
+				retryable: error.retryable ?? false,
+			};
+		}
 		if (code === 'PERSISTENT_DESCRIPTOR_MISSING') {
 			return {
 				stage: 'transport',
