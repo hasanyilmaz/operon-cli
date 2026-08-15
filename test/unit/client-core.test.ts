@@ -2279,6 +2279,14 @@ function testRenderingAndExitCodes(): void {
 		'requestToken=[redacted]',
 	);
 	assert.equal(
+		sanitizeProcessDiagnosticV1(`{"authSecret":"${'a'.repeat(64)}"}`),
+		'{authSecret=[redacted]}',
+	);
+	assert.equal(
+		sanitizeProcessDiagnosticV1(`authSecret = ${'A'.repeat(64)}&code=failed`),
+		'authSecret=[redacted]&code=failed',
+	);
+	assert.equal(
 		sanitizeProcessDiagnosticV1(`${leadingHyphenToken} ${trailingHyphenToken}`),
 		'[redacted] [redacted]',
 	);

@@ -10,6 +10,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const ASYNC_TEST_PROMISE_GLOBALS = new Map([
 	['client-core.test.ts', '__operonAgentRuntimeCliTestRun'],
 	['guided-maintenance-command.test.ts', '__operonGuidedMaintenanceCommandTestRun'],
+	['windows-persistent-bootstrap.test.ts', '__operonWindowsPersistentBootstrapTestRun'],
 ]);
 const directories = process.argv.slice(2);
 if (directories.length === 0) throw new Error('No test directories provided.');

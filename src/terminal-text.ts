@@ -31,12 +31,15 @@ const REQUEST_TOKEN_ASSIGNMENT_V1 =
 	/(?<![A-Za-z0-9_-])requestToken=[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/gu;
 const REQUEST_TOKEN_V1 =
 	/(?<![A-Za-z0-9_-])[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/gu;
+const AUTH_SECRET_V1 =
+	/(?:"authSecret"\s*:\s*"|authSecret\s*=\s*|authSecret\s*:\s*)[a-f0-9]{64}(?:"|(?=\s|&|$))/giu;
 
 export function sanitizeProcessDiagnosticV1(value: string): string {
 	const sanitized = sanitizeTerminalTextV1(value)
 		.normalize('NFC')
 		.replace(/\s+/gu, ' ')
 		.replace(REQUEST_TOKEN_ASSIGNMENT_V1, 'requestToken=[redacted]')
+		.replace(AUTH_SECRET_V1, 'authSecret=[redacted]')
 		.replace(REQUEST_TOKEN_V1, '[redacted]')
 		.trim();
 	const codePoints = [...sanitized];
