@@ -15,7 +15,7 @@ import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NPM_VERSION = '11.12.1';
-const PRIVATE_WORKFLOW_SHA256 = 'bc2fae268c14e6c96e9175c4b3b11127504f6c66bd7e7d1b32b294a3eb61293e';
+const PRIVATE_WORKFLOW_SHA256 = '84e080b78cfe3e04bfd5881d6dfff028dcfb1e1fc4b4a04addc210884646fb19';
 const NPM_TARBALL = 'https://registry.npmjs.org/npm/-/npm-11.12.1.tgz';
 const NPM_INTEGRITY = 'sha512-zcoUuF1kezGSAo0CqtvoLXX3mkRqzuqYdL6Y5tdo8g69NVV3CkjQ6ZBhBgB4d7vGkPcV6TcvLi3GRKPDFX+xTA==';
 const LEGACY = Object.freeze({
@@ -150,9 +150,9 @@ async function createCandidate(npmRoot, outputRoot, runnerId) {
 	await mkdir(outputRoot, { recursive: true });
 	const packed = runNpmJson(npmRoot, ['pack', '--json', '--ignore-scripts', '--pack-destination', outputRoot], projectRoot)[0];
 	assert.equal(packed.name, '@stratejya/operon-cli');
-	assert.equal(packed.version, '1.1.1');
+	assert.equal(packed.version, '1.1.2');
 	const source = path.join(outputRoot, packed.filename);
-	const destination = path.join(outputRoot, 'operon-cli-1.1.1.tgz');
+	const destination = path.join(outputRoot, 'operon-cli-1.1.2.tgz');
 	if (source !== destination) await rename(source, destination);
 	const archive = await normalizeOperonPackageTarballV1(destination);
 	assertOperonPackageInventoryV1(archive.entries);
@@ -189,7 +189,7 @@ async function compareCandidates(inputRoot, outputRoot) {
 		try {
 			const manifest = JSON.parse(await readFile(path.join(root, 'artifact-manifest.json'), 'utf8'));
 			assertHostedEvidence(manifest?.evidence, expectedGithub, expectedProducer, directory.name);
-			const tarballPath = path.join(root, 'operon-cli-1.1.1.tgz');
+			const tarballPath = path.join(root, 'operon-cli-1.1.2.tgz');
 			const tarball = await readFile(tarballPath);
 			const archive = await inspectPackageTarballV1(tarballPath);
 			assert.equal(archive.bytes, manifest?.canonical?.tarball?.bytes, `OPERON_CLI_CANONICAL_BYTES_MISMATCH:${directory.name}`);
@@ -223,7 +223,7 @@ async function compareCandidates(inputRoot, outputRoot) {
 	const ubuntu = manifests.find(item => item.name.includes('ubuntu'));
 	assert.ok(ubuntu, 'OPERON_CLI_CANONICAL_UBUNTU_ARTIFACT_MISSING');
 	await mkdir(outputRoot, { recursive: true });
-	await cp(path.join(ubuntu.root, 'operon-cli-1.1.1.tgz'), path.join(outputRoot, 'operon-cli-1.1.1.tgz'));
+	await cp(path.join(ubuntu.root, 'operon-cli-1.1.2.tgz'), path.join(outputRoot, 'operon-cli-1.1.2.tgz'));
 	await cp(path.join(ubuntu.root, 'artifact-manifest.json'), path.join(outputRoot, 'artifact-manifest.json'));
 	await writeFile(path.join(outputRoot, 'determinism-report.json'), `${JSON.stringify({ status: 'passed', candidates: manifests.map(item => item.manifest.evidence), canonical: ubuntu.manifest.canonical }, null, 2)}\n`);
 	console.log(JSON.stringify({ status: 'passed', candidates: manifests.length }));
