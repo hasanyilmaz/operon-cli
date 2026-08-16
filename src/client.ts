@@ -662,8 +662,8 @@ export function createWindowsPersistentBootstrapPortV1(
 		const result = await (ports.runProcess ?? runObsidianProcessV1)(
 			resolveObsidianExecutableV1(options.obsidianBin, { cwd: canonicalVaultPath }),
 			[
-				'operon:transport-bootstrap',
 				`vault=${path.basename(canonicalVaultPath)}`,
+				'operon:transport-bootstrap',
 				`bootstrapVersion=${request.bootstrapVersion}`,
 				`expectedVaultSha256=${request.expectedVaultSha256}`,
 				`clientNonce=${request.clientNonce}`,
@@ -756,8 +756,8 @@ function runSpawnTransport(
 	return (ports.runProcess ?? runObsidianProcessV1)(
 		resolveObsidianExecutableV1(options.obsidianBin, { cwd: canonicalVaultPath }),
 		[
-			handler,
 			`vault=${path.basename(canonicalVaultPath)}`,
+			handler,
 			`requestToken=${requestToken}`,
 		],
 		{
