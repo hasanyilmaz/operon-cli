@@ -30,7 +30,7 @@ const filterInvocation = {
 	requestId: 'filter-query-route',
 	command: 'tasks.filter-query',
 	mode: 'live',
-	clientVersion: '1.1.1',
+	clientVersion: '1.1.2',
 	compatibility: { contractVersion: 1, runtimeApi: { min: 1, max: 1 } },
 	cliContract: { min: 1, max: 1 },
 	expectedVaultSha256: TASK_WORKFLOW_VAULT_SHA256,
