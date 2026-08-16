@@ -340,8 +340,8 @@ async function testBootstrapRunner(): Promise<void> {
 	const raw = await bootstrapPort(request);
 	assert.equal(JSON.parse(raw.toString('utf8')).authSecret, valid.authSecret);
 	assert.deepEqual(seenArgs, [
-		'operon:transport-bootstrap',
 		'vault=Work',
+		'operon:transport-bootstrap',
 		'bootstrapVersion=1',
 		`expectedVaultSha256=${vaultSha256}`,
 		`clientNonce=${clientNonce}`,
