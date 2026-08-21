@@ -4478,7 +4478,16 @@ async function runPlanApply(
 			preview: record.plan.capability,
 			apply: periodicApplyCapability,
 			requireApply: true,
-			runtimeTargetArgs: ['--vault', record.vaultPath],
+			runtimeTargetArgs: [
+				'--vault',
+				record.vaultPath,
+				...(parsed.values['--timeout-ms']
+					? ['--timeout-ms', parsed.values['--timeout-ms']]
+					: []),
+				...(parsed.values['--obsidian-bin']
+					? ['--obsidian-bin', parsed.values['--obsidian-bin']]
+					: []),
+			],
 			ports,
 		});
 		if (!capabilityCheck.ok) return { ...capabilityCheck.outcome, json };

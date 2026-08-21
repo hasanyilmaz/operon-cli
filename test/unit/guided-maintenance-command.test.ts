@@ -273,11 +273,17 @@ async function testTaskWorkflowCommandRouting(): Promise<void> {
 		const periodicCreateInvocations: RuntimeCliInvocationV1[] = [];
 		const periodicCreate = await runPublicCommandLineV1([
 			'task', 'create', 'Periodic child', '--periodic-note', 'weekly',
-			'dateScheduled::2026-08-23', '--vault', root.vault, '--json',
+			'dateScheduled::2026-08-23', '--vault', root.vault,
+			'--obsidian-bin', process.execPath, '--json',
 		], {
 			configRoot: root.config,
 			requestRoot: root.requests,
-			runProcess: runtimeFixtureRunner(root.requests, periodicCreateInvocations, taskWorkflowResponse),
+			runProcess: runtimeFixtureRunner(
+				root.requests,
+				periodicCreateInvocations,
+				taskWorkflowResponse,
+				process.execPath,
+			),
 		});
 		assert.equal(periodicCreate.exitCode, 0, periodicCreate.human);
 		const periodicCreatePreview = periodicCreateInvocations.find(item => item.command === 'mutation.preview')?.request;
@@ -3882,8 +3888,10 @@ function runtimeFixtureRunner(
 	respond: (
 		invocation: RuntimeCliInvocationV1,
 	) => RuntimeCliResultEnvelopeV1 | ProcessResultV1,
+	expectedExecutable?: string,
 ) {
-	return async (_executable: string, args: string[]): Promise<ProcessResultV1> => {
+	return async (executable: string, args: string[]): Promise<ProcessResultV1> => {
+		if (expectedExecutable !== undefined) assert.equal(executable, expectedExecutable);
 		const token = args.find(value => value.startsWith('requestToken='))?.slice('requestToken='.length);
 		assert.ok(token);
 		let invocation: RuntimeCliInvocationV1;
