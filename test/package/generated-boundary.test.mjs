@@ -9,7 +9,7 @@ const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 test('standalone package boundary is closed', async () => {
 	const document = JSON.parse(await readFile(path.join(projectRoot, 'package.json'), 'utf8'));
 	assert.equal(document.name, '@stratejya/operon-cli');
-	assert.equal(document.version, '1.1.2');
+	assert.equal(document.version, '1.2.0');
 	assert.equal('private' in document, false);
 	assert.deepEqual(document.dependencies ?? {}, {});
 	assert.deepEqual(document.optionalDependencies ?? {}, {});

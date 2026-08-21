@@ -1,28 +1,28 @@
 export const OPERON_CLI_RELEASE_V1 = Object.freeze({
 	package: Object.freeze({
 		name: '@stratejya/operon-cli',
-		version: '1.1.2',
+		version: '1.2.0',
 	}),
 	distTag: 'latest',
 	registry: 'https://registry.npmjs.org/',
 	tarball: Object.freeze({
-		bytes: 239_306,
-		sha256: 'ab651b8cbb009d0ca1547fba0914a4a159222d899401a5928c9a3e3e3a31713b',
-		sha512: 'fQQXZj8vmqeUd4Mlc0u6p8KFHiLYcJRZI90+0BPDzZLChfIJGuVLjk8Mgyi071uUtnMpJsFlfPxVMj500HcmsA==',
+		bytes: 247_124,
+		sha256: 'd40e3d644249c1c1e22ca4e6f6bcab4a0381444ba3cac14ae8f519f7cde49aa8',
+		sha512: 'EmDaQ4jhGBPGJ8YCqdSB7l/CPtx+QBxGcx2sxDeEvPd553OxZ+vad1c2H24dOaOYLO6MP0dubTlcoxGZzwD12Q==',
 	}),
 	inventoryEntries: 48,
 	executable: Object.freeze({
-		bytes: 578_564,
-		sha256: '39610d741b7043bb74e9578d5aecfe6aaf942ee3f10e21e15d35d323ca5698e1',
+		bytes: 596_449,
+		sha256: 'd9089a4338b348e9059d6f69b197b61997c9d49eeebc101e31b2cdab9beda30b',
 		mode: 0o755,
 	}),
 	manifest: Object.freeze({
-		bytes: 60_662,
-		sha256: '1df55fddc93dd219dd07c7ecbe1bfded4c86370bc68c0b27263fbf5ed166ca90',
+		bytes: 62_632,
+		sha256: '34b7f3fb985145a49ad9a6b7e075fbea5db85cd5ef5c9ad2061775feb53ec74a',
 		mode: 0o644,
 	}),
-	schemas: 'dc58777402989717d8b5c03cf1eb5d79da8297bfc751c87f9de506f69d6aaf9f',
-	declarations: '074b16ccef6a029b78b236daae215e799931f0b5251862ddfcc174b63a4def90',
+	schemas: 'a6c81d6de50fe88859f7b07e3fb526e1a58520dc735299811194d83a0ddd3ca9',
+	declarations: '5221cf503f5d07c4e734996df40be5e8540c3f97e4be5ad6ad960bb1777fd084',
 	runtimeV1Digest: 'daaa7cce4b8ada5fd6d0a90a6676be887e854998f1d2ea4f23d7228be795a7ee',
 });
 
@@ -37,6 +37,6 @@ export const OPERON_CLI_RELEASE_WORKFLOW_V1 = Object.freeze({
 	hostedWorkflowPath: '.github/workflows/hosted-validation.yml',
 	releaseWorkflow: 'npm-staged-release.yml',
 	environment: 'npm-staging',
-	tag: 'cli-v1.1.2',
-	confirmation: 'STAGE @stratejya/operon-cli@1.1.2 TO latest',
+	tag: 'cli-v1.2.0',
+	confirmation: 'STAGE @stratejya/operon-cli@1.2.0 TO latest',
 });
