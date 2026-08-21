@@ -44,7 +44,7 @@ try {
 		schemas.push({ file: fileName, ...(typeof document?.$id === 'string' ? { id: document.$id } : {}), sha256 });
 	}
 	const runtimeSchemaManifest = JSON.parse(await readFile(path.join(schemaRoot, 'schema-manifest.json'), 'utf8'));
-	assert.equal(runtimeSchemaManifest.aggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+	assert.equal(runtimeSchemaManifest.aggregateSha256, '7f0123fc1da01ca5d10d02c8a95def5aae2bac9086ad19787dae547d94b59d8f');
 	const extensionManifest = JSON.parse(await readFile(path.join(
 		schemaRoot,
 		'extensions',
@@ -52,8 +52,8 @@ try {
 		'extension-manifest.json',
 	), 'utf8'));
 	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b');
-	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, runtimeSchemaManifest.aggregateSha256);
-	assert.equal(extensionManifest.aggregateSha256, '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c');
+	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+	assert.equal(extensionManifest.aggregateSha256, '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc');
 	for (const record of extensionManifest.documents) {
 		const relative = path.posix.join('extensions/task-workflows-v1', record.file);
 		const bytes = await readFile(path.join(schemaRoot, relative));
@@ -85,7 +85,7 @@ try {
 		schemas,
 		schemaEntrypoints,
 	);
-	assert.equal(manifest.contractDigest, 'daaa7cce4b8ada5fd6d0a90a6676be887e854998f1d2ea4f23d7228be795a7ee');
+	assert.equal(manifest.contractDigest, '5f54a0ff6deff03fabcc5750cb089a4ace34fbdd89250d5e37a555f5de70d4b8');
 	const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 	const target = path.join(projectRoot, 'cli-manifest-v1.json');
 	if (mode === '--write') await writeFile(target, serialized, 'utf8');

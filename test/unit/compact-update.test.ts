@@ -412,6 +412,9 @@ function testCompiler(): void {
 			'customDate::2026-08-01',
 			'customDatetime::2026-08-01T09:30',
 			'customList::First item; Second item',
+			'taskType::Milestone',
+			'taskImage::Assets/cover.png',
+			'taskGallery::First\\; frame.png; Folder\\\\Second.png; https://example.com/third.png',
 		], ['note', 'location']),
 		task,
 		catalog: liveCatalog(),
@@ -437,6 +440,13 @@ function testCompiler(): void {
 			{ field: 'customDate', valueType: 'date', value: '2026-08-01' },
 			{ field: 'customDatetime', valueType: 'datetime', value: '2026-08-01T09:30' },
 			{ field: 'customList', valueType: 'list', value: ['First item', 'Second item'] },
+			{ field: 'taskType', valueType: 'text', value: 'Milestone' },
+			{ field: 'taskImage', valueType: 'text', value: 'Assets/cover.png' },
+			{
+				field: 'taskGallery',
+				valueType: 'list',
+				value: ['First; frame.png', 'Folder\\Second.png', 'https://example.com/third.png'],
+			},
 			{ operation: 'clear', field: 'note', valueType: 'text' },
 		],
 	});
@@ -463,6 +473,11 @@ function testCompilerRefusals(): void {
 	}), 'FIELD_OWNED_BY_OTHER_COMMAND');
 	expectCode(() => compileCompactUpdateIntentV1({
 		ast: parseCompactUpdateArgvV1(['unknown::value'], []),
+		task,
+		catalog,
+	}), 'FIELD_NOT_WRITABLE');
+	expectCode(() => compileCompactUpdateIntentV1({
+		ast: parseCompactUpdateArgvV1(['__taskDataType::Inline'], []),
 		task,
 		catalog,
 	}), 'FIELD_NOT_WRITABLE');
@@ -529,6 +544,9 @@ function liveCatalog(): Extract<OperonCatalogV1, { ok: true }> {
 			field('contexts', 'list'),
 			field('note', 'text'),
 			field('location', 'text'),
+			field('taskType', 'text'),
+			field('taskImage', 'text'),
+			field('taskGallery', 'list'),
 			field('dateDue', 'date'),
 			field('dateScheduled', 'date'),
 			field('dateStarted', 'date'),
@@ -570,6 +588,9 @@ function hydratedTask(): TaskContextV1 {
 		{ canonicalKey: 'contexts', valueType: 'list', present: false, canClear: true },
 		{ canonicalKey: 'note', valueType: 'text', present: true, value: 'Old note', canClear: true },
 		{ canonicalKey: 'location', valueType: 'text', present: false, canClear: true },
+		{ canonicalKey: 'taskType', valueType: 'text', present: false, canClear: true },
+		{ canonicalKey: 'taskImage', valueType: 'text', present: false, canClear: true },
+		{ canonicalKey: 'taskGallery', valueType: 'list', present: false, canClear: true },
 		{ canonicalKey: 'dateDue', valueType: 'date', present: false, canClear: true },
 		{ canonicalKey: 'customDone', valueType: 'checkbox', present: true, value: true, canClear: true },
 		{ canonicalKey: 'customText', valueType: 'text', present: false, canClear: true },

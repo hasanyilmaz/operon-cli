@@ -31,7 +31,10 @@ export const COMMON_CREATE_FIELDS = new Set([
 	'note',
 	'tags',
 	'taskColor',
+	'taskGallery',
 	'taskIcon',
+	'taskImage',
+	'taskType',
 ]);
 const LOCAL_DATETIME_PATTERN = /^(\d{4}-\d{2}-\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?$/u;
 export const DESCRIPTION_CHARACTER_CAP = 16_384;
@@ -546,7 +549,14 @@ export function buildGuidedCreationBuiltInFieldV1(
 	value: string | number | boolean | string[],
 ): CreateFieldItemV1 | null {
 	const field = candidate.canonicalKey;
-	if (field === 'taskIcon' || field === 'taskColor' || field === 'note' || field === 'location') {
+	if (
+		field === 'taskType'
+		|| field === 'taskIcon'
+		|| field === 'taskColor'
+		|| field === 'note'
+		|| field === 'location'
+		|| field === 'taskImage'
+	) {
 		return { kind: 'text', field, value: String(value) };
 	}
 	if (field === 'dateDue' || field === 'dateScheduled' || field === 'dateStarted') {
@@ -559,7 +569,7 @@ export function buildGuidedCreationBuiltInFieldV1(
 		return { kind: 'number', field, value };
 	}
 	if (
-		(field === 'assignees' || field === 'contexts' || field === 'links')
+		(field === 'assignees' || field === 'contexts' || field === 'links' || field === 'taskGallery')
 		&& Array.isArray(value)
 	) {
 		return { kind: 'list', field, value };

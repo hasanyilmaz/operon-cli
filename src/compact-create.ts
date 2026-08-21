@@ -264,6 +264,7 @@ export function compileCompactCreateIntentV1(options: {
 
 		const descriptor = model.fields.find(field => field.canonicalKey === key);
 		if (!descriptor) {
+			if (key === '__taskDataType') throw compactError('FIELD_NOT_WRITABLE', key);
 			throw compactError('UNKNOWN_CANONICAL_KEY', key);
 		}
 		if (!isGuidedCreationFieldV1(descriptor)) {

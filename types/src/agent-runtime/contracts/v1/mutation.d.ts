@@ -86,7 +86,7 @@ export type CreateTaskTargetV1 = {
 };
 export type CreateFieldItemV1 = {
     kind: 'text';
-    field: 'taskIcon' | 'taskColor' | 'note' | 'location';
+    field: 'taskType' | 'taskIcon' | 'taskColor' | 'note' | 'location' | 'taskImage';
     value: string;
 } | {
     kind: 'date';
@@ -102,7 +102,7 @@ export type CreateFieldItemV1 = {
     value: number;
 } | {
     kind: 'list';
-    field: 'assignees' | 'contexts' | 'links';
+    field: 'assignees' | 'contexts' | 'links' | 'taskGallery';
     value: string[];
 } | ({
     kind: 'custom';

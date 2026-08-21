@@ -60,6 +60,8 @@ import type { InteractiveTerminalPortV1 } from '../../src/terminal-port';
 import {
 	adoptWorkflowPreviewResultV1,
 	identityWorkflowPreviewResultV1,
+	periodicCreateWorkflowPreviewResultV1,
+	periodicUpdateWorkflowPreviewResultV1,
 	taskWorkflowAppliedResultV1,
 } from '../fixtures/task-workflow-contract';
 
@@ -267,6 +269,97 @@ async function testTaskWorkflowCommandRouting(): Promise<void> {
 		const compactApply = compactInvocations[3]?.request;
 		assert.equal(compactPreview?.kind === 'mutation-preview' ? compactPreview.capability : undefined, 'tasks.create.identity-placeholders');
 		assert.equal(compactApply?.kind === 'mutation-apply' ? compactApply.plan.capability : undefined, 'tasks.create.identity-placeholders');
+
+		const periodicCreateInvocations: RuntimeCliInvocationV1[] = [];
+		const periodicCreate = await runPublicCommandLineV1([
+			'task', 'create', 'Periodic child', '--periodic-note', 'weekly',
+			'dateScheduled::2026-08-23', '--vault', root.vault,
+			'--obsidian-bin', process.execPath, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: runtimeFixtureRunner(
+				root.requests,
+				periodicCreateInvocations,
+				taskWorkflowResponse,
+				process.execPath,
+			),
+		});
+		assert.equal(periodicCreate.exitCode, 0, periodicCreate.human);
+		const periodicCreatePreview = periodicCreateInvocations.find(item => item.command === 'mutation.preview')?.request;
+		const periodicCreateApply = periodicCreateInvocations.find(item => item.command === 'mutation.apply')?.request;
+		assert.equal(periodicCreatePreview?.kind === 'mutation-preview' ? periodicCreatePreview.capability : undefined, 'tasks.create.periodic-note.preview');
+		if (periodicCreatePreview?.kind !== 'mutation-preview' || periodicCreatePreview.capability !== 'tasks.create.periodic-note.preview') {
+			throw new Error('PERIODIC_CREATE_PREVIEW_MISSING');
+		}
+		assert.equal(periodicCreatePreview.spec.items[0].target.periodicKind, 'weekly');
+		assert.equal(periodicCreatePreview.spec.items[0].target.routeDate, undefined);
+		assert.equal(periodicCreatePreview.spec.items[0].fields.some(field => 'field' in field && field.field === 'dateScheduled'), true);
+		assert.equal(periodicCreateApply?.kind === 'mutation-apply' ? periodicCreateApply.plan.capability : undefined, 'tasks.create.periodic-note.preview');
+
+		const periodicUpdateInvocations: RuntimeCliInvocationV1[] = [];
+		const periodicUpdate = await runPublicCommandLineV1([
+			'task', 'update', '--id', 'abc1234', 'dateScheduled::2026-08-24',
+			'--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: runtimeFixtureRunner(root.requests, periodicUpdateInvocations, taskWorkflowResponse),
+		});
+		assert.equal(periodicUpdate.exitCode, 0, periodicUpdate.human);
+		const periodicUpdatePreview = periodicUpdateInvocations.find(item => item.command === 'mutation.preview')?.request;
+		const periodicUpdateApply = periodicUpdateInvocations.find(item => item.command === 'mutation.apply')?.request;
+		assert.equal(periodicUpdatePreview?.kind === 'mutation-preview' ? periodicUpdatePreview.capability : undefined, 'tasks.update.periodic-note.preview');
+		if (periodicUpdatePreview?.kind !== 'mutation-preview' || periodicUpdatePreview.capability !== 'tasks.update.periodic-note.preview') {
+			throw new Error('PERIODIC_UPDATE_PREVIEW_MISSING');
+		}
+		assert.deepEqual(periodicUpdatePreview.spec.target.locator, compactUpdateTask('abc1234').locator);
+		assert.equal(periodicUpdatePreview.spec.changes.some(change => change.field === 'dateScheduled'), true);
+		assert.equal(periodicUpdateApply?.kind === 'mutation-apply' ? periodicUpdateApply.plan.capability : undefined, 'tasks.update.periodic-note.preview');
+
+		const periodicDetachInvocations: RuntimeCliInvocationV1[] = [];
+		const periodicDetach = await runPublicCommandLineV1([
+			'task', 'update', '--id', 'abc1234', '--clear', 'dateScheduled',
+			'--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: runtimeFixtureRunner(root.requests, periodicDetachInvocations, taskWorkflowResponse),
+		});
+		assert.equal(periodicDetach.exitCode, 0, periodicDetach.human);
+		const periodicDetachPreview = periodicDetachInvocations.find(item => item.command === 'mutation.preview')?.request;
+		assert.equal(periodicDetachPreview?.kind === 'mutation-preview' ? periodicDetachPreview.capability : undefined, 'tasks.update.periodic-note.preview');
+		if (periodicDetachPreview?.kind !== 'mutation-preview' || periodicDetachPreview.capability !== 'tasks.update.periodic-note.preview') {
+			throw new Error('PERIODIC_DETACH_PREVIEW_MISSING');
+		}
+		assert.deepEqual(periodicDetachPreview.spec.changes, [{ operation: 'clear', field: 'dateScheduled', valueType: 'date' }]);
+
+		const unavailableInvocations: RuntimeCliInvocationV1[] = [];
+		const unavailablePeriodic = await runPublicCommandLineV1([
+			'task', 'create', 'Unsupported periodic child', '--periodic-note', 'daily',
+			'--vault', root.vault, '--json',
+		], {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: runtimeFixtureRunner(root.requests, unavailableInvocations, invocation => {
+				if (invocation.command === 'context.build') {
+					return successEnvelope(invocation as CliInvocationV1, compactCreationContext(invocation.requestId)) as unknown as RuntimeCliResultEnvelopeV1;
+				}
+				if (invocation.command === 'capabilities') {
+					return successEnvelope(invocation as CliInvocationV1, [
+						{ id: 'tasks.create.preview', availability: 'available', stability: 'stable' },
+						{ id: 'tasks.create.apply', availability: 'available', stability: 'stable' },
+					]) as unknown as RuntimeCliResultEnvelopeV1;
+				}
+				throw new Error(`OLD_PROVIDER_MUST_FAIL_BEFORE_${invocation.command}`);
+			}),
+		});
+		assert.equal(unavailablePeriodic.exitCode, 4, unavailablePeriodic.human);
+		assert.equal(unavailableInvocations.some(item => item.command === 'mutation.preview'), false);
+		if (unavailablePeriodic.envelope.kind === 'operon-cli-local-result') {
+			assert.equal(unavailablePeriodic.envelope.error?.code, 'capability-unavailable');
+			assert.equal(unavailablePeriodic.envelope.error?.details?.requiredCapability, 'tasks.create.periodic-note.preview');
+		}
 
 		const batchInvocations: RuntimeCliInvocationV1[] = [];
 		const batch = await runPublicCommandLineV1([
@@ -3497,6 +3590,13 @@ function compactUpdateTask(
 				value: '2026-07-31',
 				canClear: true,
 			},
+			{
+				canonicalKey: 'dateScheduled',
+				valueType: 'date',
+				present: true,
+				value: '2026-08-20',
+				canClear: true,
+			},
 		],
 	};
 }
@@ -3518,6 +3618,7 @@ function compactUpdateCatalog(requestId: string): OperonCatalogV1 {
 		['note', 'Note', 'text'],
 		['contexts', 'Contexts', 'list'],
 		['dateDue', 'Due date', 'date'],
+		['dateScheduled', 'Scheduled date', 'date'],
 	].map(([canonicalKey, displayName, valueType]) => ({
 			canonicalKey,
 			displayName,
@@ -3594,6 +3695,18 @@ function compactCreationContext(requestId: string): ContextPackV1 {
 			displayName: 'Contexts',
 			description: 'Task contexts',
 			valueType: 'list',
+			source: 'built-in',
+			mappingStatus: 'mapped',
+			readable: true,
+			mutationClass: 'general-update',
+			mutationOwner: 'tasks.update',
+			requiresStableTaxonomyId: false,
+		},
+		{
+			canonicalKey: 'dateScheduled',
+			displayName: 'Scheduled date',
+			description: 'Scheduled date',
+			valueType: 'date',
 			source: 'built-in',
 			mappingStatus: 'mapped',
 			readable: true,
@@ -3775,8 +3888,10 @@ function runtimeFixtureRunner(
 	respond: (
 		invocation: RuntimeCliInvocationV1,
 	) => RuntimeCliResultEnvelopeV1 | ProcessResultV1,
+	expectedExecutable?: string,
 ) {
-	return async (_executable: string, args: string[]): Promise<ProcessResultV1> => {
+	return async (executable: string, args: string[]): Promise<ProcessResultV1> => {
+		if (expectedExecutable !== undefined) assert.equal(executable, expectedExecutable);
 		const token = args.find(value => value.startsWith('requestToken='))?.slice('requestToken='.length);
 		assert.ok(token);
 		let invocation: RuntimeCliInvocationV1;
@@ -3816,22 +3931,44 @@ function taskWorkflowResponse(
 			'tasks.create.preview',
 			'tasks.create.apply',
 			'tasks.create.identity-placeholders',
+			'tasks.create.periodic-note.preview',
+			'tasks.create.periodic-note.apply',
+			'tasks.update.periodic-note.preview',
+			'tasks.update.periodic-note.apply',
 			'tasks.adopt.preview',
 			'tasks.adopt.apply',
 			'tasks.read',
 		].map(id => ({ id, availability: 'available', stability: 'stable' }))) as RuntimeCliResultEnvelopeV1;
 	}
 	if (invocation.command === 'context.build') {
+		const requestText = JSON.stringify(invocation.request);
 		return successEnvelope(
 			invocation,
-			compactCreationContext(invocation.requestId),
+			requestText.includes('abc1234')
+				? compactUpdateContext(invocation.requestId, compactUpdateTask('abc1234'))
+				: compactCreationContext(invocation.requestId),
 		) as RuntimeCliResultEnvelopeV1;
+	}
+	if (invocation.command === 'task.get') {
+		return successEnvelope(invocation as CliInvocationV1, {
+			...taskGetResult(invocation.requestId),
+			task: compactUpdateTask('abc1234'),
+		}) as unknown as RuntimeCliResultEnvelopeV1;
+	}
+	if (invocation.command === 'catalog') {
+		return successEnvelope(invocation as CliInvocationV1, compactUpdateCatalog(invocation.requestId)) as unknown as RuntimeCliResultEnvelopeV1;
 	}
 	if (invocation.command === 'mutation.preview') {
 		const request = invocation.request as TaskWorkflowPreviewRequestV1;
 		const result = request.mutationKind === 'task.adopt'
 			? adoptWorkflowPreviewResultV1(request)
-			: identityWorkflowPreviewResultV1(request);
+			: request.capability === 'tasks.create.periodic-note.preview'
+				? periodicCreateWorkflowPreviewResultV1(request)
+				: request.capability === 'tasks.update.periodic-note.preview'
+					? periodicUpdateWorkflowPreviewResultV1(request)
+			: request.capability === 'tasks.create.identity-placeholders'
+				? identityWorkflowPreviewResultV1(request)
+				: (() => { throw new Error('Unexpected task workflow capability'); })();
 		return successEnvelope(
 			invocation as CliInvocationV1,
 			result,

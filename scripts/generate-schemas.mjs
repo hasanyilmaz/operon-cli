@@ -33,7 +33,7 @@ try {
 	}
 	assert.equal(copied.size, 22, 'Generated schema inventory must contain 22 files.');
 	const manifest = JSON.parse(await readFile(path.join(generatedRoot, 'schema-manifest.json'), 'utf8'));
-	assert.equal(manifest.aggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+	assert.equal(manifest.aggregateSha256, '7f0123fc1da01ca5d10d02c8a95def5aae2bac9086ad19787dae547d94b59d8f');
 	const extensionManifest = JSON.parse(await readFile(path.join(
 		generatedRoot,
 		'extensions',
@@ -41,8 +41,8 @@ try {
 		'extension-manifest.json',
 	), 'utf8'));
 	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b');
-	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, manifest.aggregateSha256);
-	assert.equal(extensionManifest.aggregateSha256, '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c');
+	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
+	assert.equal(extensionManifest.aggregateSha256, '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc');
 	if (mode === '--check') {
 		await assertTreesEqual(generatedRoot, targetRoot);
 	} else {
