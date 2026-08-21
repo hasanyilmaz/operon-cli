@@ -3,24 +3,25 @@
   "kind": "operon-cli-plugin-snapshot",
   "origin": {
     "repository": "https://github.com/hasanyilmaz/operon",
-    "pluginCheckpointCommit": "bc3e34f2e7b1acb6f7e52a9f481df295dc179f98",
-    "pluginTreeOid": "c5467b52254c06a0a35bec38ec5d3d8119d718ea",
-    "contractSourceTreeOid": "b08b9c9ce2d60a00beb5ed312d28ba571e968942",
+    "pluginCheckpointCommit": "3f00fa69c036db4818dace7ea12366ec5d8ad73a",
+    "pluginTreeOid": "3937f3a95947c476df6fea5f58005dcdf1033e70",
+    "contractSourceTreeOid": "715a63d03d36f9a04ba9d2d292e2b4037edbc73d",
     "publicTypeSourceTreeOid": "7f86bf8212e6a58fe9dd44abd9818cada542907f",
-    "runtimeSchemaTreeOid": "bd2175490f0357c336603ce7d56a06b20a8b1491",
-    "taskWorkflowExtensionSourceTreeOid": "52212124a7ee6b66ae50e0386c54a39a1ec17c3a",
-    "taskWorkflowExtensionSchemaTreeOid": "b2207bb0c7c46754d6ddab24b59834cf70d2e2c3"
+    "runtimeSchemaTreeOid": "421474db07a9603e547e5bcd08fdaa2f1d68b068",
+    "taskWorkflowExtensionSourceTreeOid": "1f03fa7b68819b77e0449a10d5d8b6bdde2c072f",
+    "taskWorkflowExtensionSchemaTreeOid": "b865ba3ce4d9b6646475d998dfa2d472a214b9e8"
   },
   "runtimeV1": {
     "contractVersion": 1,
     "contractDigest": "407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b",
-    "schemaAggregateSha256": "7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa"
+    "schemaAggregateSha256": "7f0123fc1da01ca5d10d02c8a95def5aae2bac9086ad19787dae547d94b59d8f"
   },
   "extensions": {
     "taskWorkflowsV1": {
       "extensionId": "task-workflows-v1",
       "contractVersion": 1,
-      "aggregateSha256": "5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c"
+      "baseSchemaManifestAggregateSha256": "7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa",
+      "aggregateSha256": "2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc"
     }
   },
   "toolchain": {
@@ -33,7 +34,7 @@
   "groups": {
     "contractSource": {
       "fileCount": 15,
-      "aggregateSha256": "96e106837883bb7aec947ee2df902206626140ff9426c11ddf2b24cff67f9a7a"
+      "aggregateSha256": "52533bb522fd369563394dd106dd77383b2b8fe7f5b8f7e4f9263b94406cfedf"
     },
     "publicTypeSource": {
       "fileCount": 5,
@@ -41,15 +42,15 @@
     },
     "runtimeSchemas": {
       "fileCount": 13,
-      "aggregateSha256": "661e5c7ad9dbd0eda1c8b917dc8a0614669465d3d1e77baaf30b330b94ad30a8"
+      "aggregateSha256": "d3a7751d762b0e7a68b105443010792b46104481920993bfd26f5b3ceac26f57"
     },
     "taskWorkflowExtensionSource": {
       "fileCount": 2,
-      "aggregateSha256": "ca82890c608f532c63a71dd484f3b2fcdebdcee572a33d7cdf2d487b1b5601c1"
+      "aggregateSha256": "c0815f4d595b30c2f9505462992c22d4bc66f44e7ca464fd0e3442ddc943f658"
     },
     "taskWorkflowExtensionSchemas": {
       "fileCount": 6,
-      "aggregateSha256": "6f7bc7d3427c95afd3ca1aacfd7d8fc2e23cd2f51e4447b1f27f566912311deb"
+      "aggregateSha256": "7a9c01e53bd0a9af697df5fc817aa32f76b74756f78ec7891039253103ceb005"
     },
     "temporalCodecs": {
       "fileCount": 3,
@@ -68,8 +69,8 @@
   "files": [
     {
       "path": "contracts/agent-runtime/extensions/task-workflows-v1/capabilities.schema.json",
-      "sha256": "a851259654fefcb6498c752b5159d8c6a6e98cce5b218912f61f1e89528ce2a0",
-      "bytes": 4307,
+      "sha256": "ce9def903f34492a4845088943b5ec476e22299dd72f284c4ec59c405d48f19e",
+      "bytes": 7100,
       "mode": "644"
     },
     {
@@ -80,20 +81,20 @@
     },
     {
       "path": "contracts/agent-runtime/extensions/task-workflows-v1/developer-api.schema.json",
-      "sha256": "f6ba37ec2064b1018cff60ac013f2cf7563f459ad4b2fb9c4483590e22a324e0",
-      "bytes": 1769,
+      "sha256": "f5c3fbed70dcbb1fc65fbfae7c2056f12339711bc41635f4cc6b5014e73ea14a",
+      "bytes": 65155,
       "mode": "644"
     },
     {
       "path": "contracts/agent-runtime/extensions/task-workflows-v1/extension-manifest.json",
-      "sha256": "8a7b6d5994ee0ffc89b524e84719e6ed1e7d5182ee3053ad15d868db5249fc86",
-      "bytes": 7324,
+      "sha256": "0760e969cac3e9bf5040df049ae74db0d1d79680402c95e91324b5606be36dac",
+      "bytes": 9134,
       "mode": "644"
     },
     {
       "path": "contracts/agent-runtime/extensions/task-workflows-v1/mutation.schema.json",
-      "sha256": "36b4645cfaa81dbe48c622c72f37db1a454524feb7e8020347d8115bb3ccba1c",
-      "bytes": 25617,
+      "sha256": "0aecb8dfe6c85ce3291f5e793a60808c3e012b73741c8463fd8456a5898b34de",
+      "bytes": 42089,
       "mode": "644"
     },
     {
@@ -152,8 +153,8 @@
     },
     {
       "path": "contracts/agent-runtime/v1/mutation.schema.json",
-      "sha256": "c0b193182e05b69c0e2cfb3a7d38c839ba516a6f4c9e71bb612b7d704a8fdf98",
-      "bytes": 82314,
+      "sha256": "3d756d096fbebe7cc905e9bdbae30c8c13f5d728e9507f5fe5414f159e59c499",
+      "bytes": 84340,
       "mode": "644"
     },
     {
@@ -164,7 +165,7 @@
     },
     {
       "path": "contracts/agent-runtime/v1/schema-manifest.json",
-      "sha256": "d4c946362281d838b953f0285e28eec217e61f655d31be0875934f265576e9eb",
+      "sha256": "67e1de07ca30a347065d3cdf43786d02d112b80ca2a5d244753cf33544b67e06",
       "bytes": 15730,
       "mode": "644"
     },
@@ -200,8 +201,8 @@
     },
     {
       "path": "src/agent-runtime/contracts/v1/catalog.ts",
-      "sha256": "3ec4bc3a186234745d0a82ba38fa2a6d0ed8eb79801d767aa86ba1022a8b81cd",
-      "bytes": 12954,
+      "sha256": "5b30f703fb2202148a52f9e3f5408e48ad86b0e61582da5dc51422d261e8d55a",
+      "bytes": 12997,
       "mode": "644"
     },
     {
@@ -218,8 +219,8 @@
     },
     {
       "path": "src/agent-runtime/contracts/v1/decode.ts",
-      "sha256": "f154e8c00b2f8824943131a615316eb0a8cbce15b954bc5ec3e532bdf1ab3482",
-      "bytes": 290450,
+      "sha256": "bd2b55e8385526ef9d0de23c3bb5304d47aff23d5f13aeec6d3f09944773b5b6",
+      "bytes": 291156,
       "mode": "644"
     },
     {
@@ -260,8 +261,8 @@
     },
     {
       "path": "src/agent-runtime/contracts/v1/mutation.ts",
-      "sha256": "7851b20b505c672845a2512dc2f0901cf603725993067e9210ae42e1c2949563",
-      "bytes": 19538,
+      "sha256": "592297e6886046fd8c5361e9fc7389bbbfa830812daf0b55b297c7de95a1a83c",
+      "bytes": 19581,
       "mode": "644"
     },
     {
@@ -278,14 +279,14 @@
     },
     {
       "path": "src/agent-runtime/extensions/task-workflows-v1/contracts.ts",
-      "sha256": "fe6063a3751d8de2e4b906a917f9f5971b1c299aca1e913a163f71efced5d6fd",
-      "bytes": 9072,
+      "sha256": "4d932cef9c70168f1b6e32a056bee63f4a547b1b896e4088719321556a64d370",
+      "bytes": 13399,
       "mode": "644"
     },
     {
       "path": "src/agent-runtime/extensions/task-workflows-v1/decode.ts",
-      "sha256": "5fba299970c719d8a113d8a9d262e060fd5a8ff6227139470dac4bbe75000600",
-      "bytes": 69582,
+      "sha256": "31c4b73fb09f3f06eb69cefa9d790fe25c9e316f7e876e29e6615bf664f28db4",
+      "bytes": 83806,
       "mode": "644"
     },
     {
@@ -343,5 +344,5 @@
       "mode": "644"
     }
   ],
-  "snapshotAggregateSha256": "e82c9b9939690c52bf144ba72049ca855a5f9fbfa8228adaa73ed6b944927d99"
+  "snapshotAggregateSha256": "db2ad41836cf53c8c18592915d52a595f420dead584dcfb880b98e2c2e235242"
 }

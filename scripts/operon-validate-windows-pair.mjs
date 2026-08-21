@@ -222,7 +222,7 @@ async function decoderParityV1(pluginCheckout, cliRoot) {
 	), 'utf8'));
 	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b', 'OPERON_WINDOWS_PAIR_EXTENSION_BASE_DIGEST');
 	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa', 'OPERON_WINDOWS_PAIR_EXTENSION_BASE_SCHEMA');
-	assert.equal(extensionManifest.aggregateSha256, '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c', 'OPERON_WINDOWS_PAIR_EXTENSION_AGGREGATE');
+	assert.equal(extensionManifest.aggregateSha256, '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc', 'OPERON_WINDOWS_PAIR_EXTENSION_AGGREGATE');
 	return {
 		status: 'passed',
 		baseDecoderSha256: hashes['src/agent-runtime/contracts/v1/decode.ts'],

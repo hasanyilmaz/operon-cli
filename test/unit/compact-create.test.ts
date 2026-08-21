@@ -428,6 +428,9 @@ function testCompiler(): void {
 			'customNumber::2.5',
 			'customDate::2026-08-02',
 			'customDatetime::2026-08-02T14:00:00',
+			'taskType::Milestone',
+			'taskImage::Assets/cover.png',
+			'taskGallery::First\\; frame.png; Folder\\\\Second.png; https://example.com/third.png',
 		]),
 		model: creationModel(false),
 		itemRef: 'compact-4',
@@ -464,6 +467,13 @@ function testCompiler(): void {
 				field: 'customDatetime',
 				valueType: 'datetime',
 				value: '2026-08-02T14:00:00',
+			},
+			{ kind: 'text', field: 'taskType', value: 'Milestone' },
+			{ kind: 'text', field: 'taskImage', value: 'Assets/cover.png' },
+			{
+				kind: 'list',
+				field: 'taskGallery',
+				value: ['First; frame.png', 'Folder\\Second.png', 'https://example.com/third.png'],
 			},
 		],
 		tags: ['backend', 'urgent'],
@@ -504,6 +514,7 @@ function testCompilerRefusals(): void {
 	expectCompileCode(model, ['Test', 'parentTask::ABC1234'], 'INVALID_PARENT_TASK');
 	expectCompileCode(model, ['Test', 'customDone::yes'], 'INVALID_FIELD_VALUE');
 	expectCompileCode(model, ['Test', 'customList::One; One'], 'DUPLICATE_LIST_ELEMENT');
+	expectCompileCode(model, ['Test', '__taskDataType::Inline'], 'FIELD_NOT_WRITABLE');
 	expectCompileCode(
 		creationModel(false, false),
 		['Test', 'reminderRules::dateDue.30m'],
@@ -626,6 +637,9 @@ function creationModel(
 			field('location', 'text'),
 			field('taskColor', 'text'),
 			field('taskIcon', 'text'),
+			field('taskType', 'text'),
+			field('taskImage', 'text'),
+			field('taskGallery', 'list'),
 			field('operonId', 'text', 'runtime-owned'),
 			field('customList', 'list', 'general-update', 'custom'),
 			field('customDone', 'checkbox', 'general-update', 'custom'),

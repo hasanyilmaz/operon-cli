@@ -1,5 +1,8 @@
 import { canonicalJsonV1, sha256HexV1, toJsonValueV1 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/canonical';
 import type {
+	IdentityPlaceholderSealedPlanV1,
+	PeriodicNoteCreateSealedPlanV1,
+	PeriodicNoteUpdateSealedPlanV1,
 	TaskWorkflowApplyRequestV1,
 	TaskWorkflowCliInvocationV1,
 	TaskWorkflowCliResultEnvelopeV1,
@@ -14,13 +17,13 @@ export const TASK_WORKFLOW_IDEMPOTENCY_KEY = 'identity-route-key-0001';
 export const TASK_WORKFLOW_CLIENT_ID = 'operon-cli-extension';
 
 export function identityWorkflowPreviewResultV1(
-	request: Extract<TaskWorkflowPreviewRequestV1, { mutationKind: 'task.create' }>,
+	request: Extract<TaskWorkflowPreviewRequestV1, { capability: 'tasks.create.identity-placeholders' }>,
 ): TaskWorkflowPreviewResultV1 {
 	const createdAt = new Date().toISOString();
 	const resources = [...new Set(request.spec.items.map((item, index) => (
 		item.target.mode === 'exact-path' ? item.target.filePath : `Tasks/Task-${index + 1}.md`
 	)))];
-	const plan: TaskWorkflowSealedPlanV1 = {
+	const plan: IdentityPlaceholderSealedPlanV1 = {
 		contractVersion: 1,
 		planId: sha256HexV1(`plan\0${request.requestId}`),
 		planHash: '',
@@ -130,6 +133,120 @@ export function adoptWorkflowPreviewResultV1(
 	return { contractVersion: 1, requestId: request.requestId, kind: 'mutation-preview-result', ok: true, plan, warnings: [] };
 }
 
+export function periodicCreateWorkflowPreviewResultV1(
+	request: Extract<TaskWorkflowPreviewRequestV1, { capability: 'tasks.create.periodic-note.preview' }>,
+): TaskWorkflowPreviewResultV1 {
+	const createdAt = new Date().toISOString();
+	const item = request.spec.items[0];
+	const routeDateKey = item.target.routeDate ?? fieldValueV1(item.fields, 'dateScheduled') ?? '2026-08-21';
+	const weekly = item.target.periodicKind === 'weekly';
+	const notePath = weekly ? 'Weekly/2026-W34.md' : `Daily/${routeDateKey}.md`;
+	const operonId = sha256HexV1(`periodic-create\0${request.requestId}`).slice(0, 7);
+	const plan: PeriodicNoteCreateSealedPlanV1 = {
+		contractVersion: 1,
+		planId: sha256HexV1(`plan\0${request.requestId}`),
+		planHash: '',
+		clientInstanceId: request.clientInstanceId,
+		correlationId: request.correlationId ?? request.requestId,
+		idempotencyKeyHash: sha256HexV1(request.idempotencyKey),
+		receiptTargetDigest: '',
+		capability: request.capability,
+		mutationKind: request.mutationKind,
+		createdAt,
+		expiresAt: new Date(Date.parse(createdAt) + 300_000).toISOString(),
+		targets: [{ operonId, locator: { representation: 'inline', filePath: notePath, lineNumber: 1 }, targetDigest: '' }],
+		contextRevision: fixtureContextRevisionV1(),
+		affectedResources: [{ resourceKind: 'task-source', resourceKey: notePath, revision: 'absent' }],
+		atomicGroups: [{ groupId: `periodic-note:${notePath}`, order: 0, resources: [{ resourceKind: 'task-source', resourceKey: notePath }] }],
+		predictedEffects: [{ resourceKind: 'task-source', resourceKey: notePath, action: 'create', summary: `Create ${item.target.periodicKind} note and task.` }],
+		riskLevel: 'routine',
+		requiresConfirmation: false,
+		requiredAcknowledgements: [],
+		warnings: [],
+		spec: structuredClone(request.spec),
+		createEffects: [{
+			itemRef: item.itemRef,
+			operonId,
+			locator: { representation: 'inline', filePath: notePath, lineNumber: 1 },
+			renderedTaskDigest: sha256HexV1(`rendered\0${item.description}`),
+			plannedSourceDigest: sha256HexV1(`source\0${notePath}\0${item.description}`),
+			expectedAbsence: true,
+			resolvedRelatedOperonIds: [],
+		}],
+		periodicRoute: {
+			periodicKind: item.target.periodicKind,
+			routeDateKey,
+			periodicAnchorDateKey: weekly ? '2026-08-17' : routeDateKey,
+			routeSource: item.target.routeDate ? 'explicit-route-date' : fieldValueV1(item.fields, 'dateScheduled') ? 'date-scheduled' : 'local-today',
+			localToday: '2026-08-21',
+			notePath,
+			headingKeyword: weekly ? `## [[${routeDateKey}]]` : '## Tasks',
+			configDigest: '4'.repeat(64),
+			templatePath: null,
+			templateDigest: '5'.repeat(64),
+			noteExpectedState: 'absent',
+			noteExpectedDigest: '6'.repeat(64),
+			preparedNoteContent: '',
+			container: { mode: 'none', registryState: 'not-required' },
+		},
+	};
+	plan.targets[0]!.targetDigest = sha256HexV1(canonicalJsonV1(toJsonValueV1(plan.createEffects[0]!)));
+	sealPlanV1(plan);
+	return { contractVersion: 1, requestId: request.requestId, kind: 'mutation-preview-result', ok: true, plan, warnings: [] };
+}
+
+export function periodicUpdateWorkflowPreviewResultV1(
+	request: Extract<TaskWorkflowPreviewRequestV1, { capability: 'tasks.update.periodic-note.preview' }>,
+): TaskWorkflowPreviewResultV1 {
+	const createdAt = new Date().toISOString();
+	const nextDateScheduled = fieldValueV1(request.spec.changes, 'dateScheduled') ?? '';
+	const locator = structuredClone(request.spec.target.locator);
+	const resourceKey = locator.filePath;
+	const plan: PeriodicNoteUpdateSealedPlanV1 = {
+		contractVersion: 1,
+		planId: sha256HexV1(`plan\0${request.requestId}`),
+		planHash: '',
+		clientInstanceId: request.clientInstanceId,
+		correlationId: request.correlationId ?? request.requestId,
+		idempotencyKeyHash: sha256HexV1(request.idempotencyKey),
+		receiptTargetDigest: '',
+		capability: request.capability,
+		mutationKind: request.mutationKind,
+		createdAt,
+		expiresAt: new Date(Date.parse(createdAt) + 300_000).toISOString(),
+		targets: [{ operonId: request.spec.target.operonId, locator, targetDigest: sha256HexV1(canonicalJsonV1(toJsonValueV1(request.spec))) }],
+		contextRevision: fixtureContextRevisionV1(),
+		affectedResources: [{ resourceKind: 'task-source', resourceKey, revision: 'c'.repeat(64) }],
+		atomicGroups: [{ groupId: `task-source:${resourceKey}`, order: 0, resources: [{ resourceKind: 'task-source', resourceKey }] }],
+		predictedEffects: [{ resourceKind: 'task-source', resourceKey, action: 'update', summary: 'Update task and periodic parent without moving its locator.' }],
+		riskLevel: 'routine',
+		requiresConfirmation: false,
+		requiredAcknowledgements: [],
+		warnings: [],
+		spec: structuredClone(request.spec),
+		periodicUpdate: {
+			decision: nextDateScheduled ? 'realign' : 'detach',
+			periodicKind: 'daily',
+			previousDateScheduled: '2026-08-20',
+			nextDateScheduled,
+			periodicAnchorDateKey: nextDateScheduled || null,
+			notePath: nextDateScheduled ? `Daily/${nextDateScheduled}.md` : null,
+			configDigest: '4'.repeat(64),
+			templatePath: null,
+			templateDigest: '5'.repeat(64),
+			container: nextDateScheduled
+				? { mode: 'existing', operonId: 'parent1', registryState: 'registered' }
+				: { mode: 'none', registryState: 'not-required' },
+			parentBefore: 'old1234',
+			parentAfter: nextDateScheduled ? 'parent1' : null,
+			originalLocator: locator,
+			sourceTransitions: [{ filePath: resourceKey, expectedState: 'present', expectedDigest: 'c'.repeat(64), plannedDigest: 'd'.repeat(64) }],
+		},
+	};
+	sealPlanV1(plan);
+	return { contractVersion: 1, requestId: request.requestId, kind: 'mutation-preview-result', ok: true, plan, warnings: [] };
+}
+
 export function taskWorkflowAppliedResultV1(
 	request: TaskWorkflowApplyRequestV1,
 	vaultIdentityHash: string,
@@ -168,8 +285,8 @@ export function taskWorkflowAppliedResultV1(
 	};
 }
 
-export function identityWorkflowPlanV1(): TaskWorkflowSealedPlanV1 {
-	const plan: TaskWorkflowSealedPlanV1 = {
+export function identityWorkflowPlanV1(): IdentityPlaceholderSealedPlanV1 {
+	const plan: IdentityPlaceholderSealedPlanV1 = {
 		contractVersion: 1,
 		planId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
 		planHash: '',
@@ -319,6 +436,20 @@ function fixtureContextRevisionV1() {
 		projectSerialGeneration: 0,
 		projectSerialSignature: '2'.repeat(64),
 	};
+}
+
+function fieldValueV1(
+	fields: ReadonlyArray<unknown>,
+	canonicalKey: string,
+): string | undefined {
+	const field = fields.find(candidate => (
+		typeof candidate === 'object'
+		&& candidate !== null
+		&& 'field' in candidate
+		&& candidate.field === canonicalKey
+	));
+	const value = typeof field === 'object' && field !== null && 'value' in field ? field.value : undefined;
+	return typeof value === 'string' ? value : undefined;
 }
 
 function sealPlanV1(plan: TaskWorkflowSealedPlanV1): void {

@@ -28,6 +28,8 @@ import type {
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
 import type {
 	IdentityPlaceholderCreateSpecV1,
+	PeriodicNoteCreateSpecV1,
+	PeriodicNoteUpdateSpecV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
 import {
 	CONTRACT_LIMITS_V1,
@@ -94,6 +96,7 @@ import {
 import {
 	askGuidedApplyV1,
 	buildGuidedCreationModelV1,
+	type GuidedCreationIntentV1,
 	type GuidedCreationModelV1,
 	runGuidedCreationWizardV1,
 } from './guided-creation';
@@ -804,6 +807,7 @@ async function runConvenienceCommand(
 			'--request-id',
 			'--obsidian-bin',
 			...(allowsGuidedCreation || allowsCompactUpdate ? ['--input-format'] : []),
+			...(allowsGuidedCreation ? ['--periodic-note'] : []),
 			...(allowsCompactUpdate || allowsDirectMutation ? ['--id', '--description'] : []),
 			...(allowsDirectSourceTransition ? ['--target-file'] : []),
 			...(allowsDirectAdopt ? ['--file', '--status-id'] : []),
@@ -828,6 +832,7 @@ async function runConvenienceCommand(
 	if (allowsGuidedCreation) {
 		const inputPath = parsed.values['--input'];
 		const inputFormat = parsed.values['--input-format'];
+		const periodicKind = parsePeriodicNoteKindV1(parsed.values['--periodic-note']);
 		if (inputFormat && !inputPath) throw new Error('INPUT_FORMAT_REQUIRES_INPUT');
 		if (
 			inputFormat
@@ -837,6 +842,7 @@ async function runConvenienceCommand(
 		) {
 			throw new Error('INPUT_FORMAT_UNSUPPORTED');
 		}
+		if (inputPath && periodicKind !== undefined) throw new Error('PERIODIC_INPUT_CONFLICT');
 		if (inputPath && parsed.positionals.length > 0) throw new Error('COMPACT_INPUT_CONFLICT');
 		if (inputPath && inputFormat === 'compact') {
 			const ast = parseCompactCreateInputV1(await readInputText(inputPath, ports.input));
@@ -853,7 +859,18 @@ async function runConvenienceCommand(
 		if (!inputPath) {
 			const route = parseCompactCreateArgvV1(parsed.positionals);
 			if (route.route === 'compact') {
+				if (periodicKind !== undefined && route.ast.representation !== null) {
+					throw new Error('PERIODIC_REPRESENTATION_OVERRIDE');
+				}
 				return await runCompactCreationCommand(route.ast, parsed, ports, false);
+			}
+			if (periodicKind !== undefined) {
+				if (!route.initialDescription) throw new Error('PERIODIC_DESCRIPTION_REQUIRED');
+				return await runCompactCreationCommand({
+					description: normalizeCompactValueV1(route.initialDescription),
+					representation: null,
+					assignments: [],
+				}, parsed, ports, false);
 			}
 		}
 	}
@@ -1042,6 +1059,24 @@ async function runConvenienceCommand(
 	const mapping = convenienceMapping(command, spec as Record<string, unknown>);
 	if (spec.operation !== mapping.operation) throw new Error('MUTATION_OPERATION_MISMATCH');
 	if (
+		mapping.capability === 'tasks.create.periodic-note.preview'
+		|| mapping.capability === 'tasks.update.periodic-note.preview'
+	) {
+		const scopedPorts = withResolvedRuntimeTargetV1(parsed.values, ports);
+		const capabilityCheck = await requirePeriodicCapabilitiesV1({
+			preview: mapping.capability,
+			apply: mapping.capability === 'tasks.create.periodic-note.preview'
+				? 'tasks.create.periodic-note.apply'
+				: 'tasks.update.periodic-note.apply',
+			requireApply: false,
+			runtimeTargetArgs: runtimeTargetArgsFor(parsed.values, scopedPorts._resolvedTarget),
+			ports: scopedPorts,
+		});
+		if (!capabilityCheck.ok) {
+			return { ...capabilityCheck.outcome, json: parsed.booleans.has('--json') };
+		}
+	}
+	if (
 		(command === 'task.pin' && intent.spec.pinned !== true)
 		|| (command === 'task.unpin' && intent.spec.pinned !== false)
 	) {
@@ -1050,8 +1085,11 @@ async function runConvenienceCommand(
 	const targetPolicy = OPERON_CLI_CONVENIENCE_TARGET_POLICIES_V1[
 		command as keyof typeof OPERON_CLI_CONVENIENCE_TARGET_POLICIES_V1
 	];
-	const batchTargetInSpec = command === 'task.update' && intent.spec.operation === 'update-batch';
-	if (targetPolicy === 'required' && !intent.target && !batchTargetInSpec) {
+	const targetInSpec = command === 'task.update' && (
+		intent.spec.operation === 'update-batch'
+		|| intent.spec.operation === 'update-periodic-note'
+	);
+	if (targetPolicy === 'required' && !intent.target && !targetInSpec) {
 		throw new Error('EXACT_TARGET_REQUIRED');
 	}
 	if (targetPolicy === 'forbidden' && intent.target) throw new Error('TARGET_NOT_ALLOWED');
@@ -1065,7 +1103,9 @@ async function runConvenienceCommand(
 		...(intent.correlationId ? { correlationId: intent.correlationId } : {}),
 		capability: mapping.capability,
 		mutationKind: mapping.mutationKind,
-		...(intent.target ? { target: intent.target } : {}),
+		...(intent.target && intent.spec.operation !== 'update-periodic-note'
+			? { target: intent.target }
+			: {}),
 		spec,
 		authorization: {
 			basis: 'user-explicit-request',
@@ -1138,6 +1178,20 @@ async function runCompactCreationCommand(
 ): Promise<PublicCommandOutcomeV1> {
 	const scopedPorts = withResolvedRuntimeTargetV1(parsed.values, ports);
 	const requireApply = !inputMode && !parsed.booleans.has('--preview-only');
+	const periodicKind = parsePeriodicNoteKindV1(parsed.values['--periodic-note']);
+	if (periodicKind !== undefined) {
+		const runtimeTargetArgs = runtimeTargetArgsFor(parsed.values, scopedPorts._resolvedTarget);
+		const capabilities = await requirePeriodicCapabilitiesV1({
+			preview: 'tasks.create.periodic-note.preview',
+			apply: 'tasks.create.periodic-note.apply',
+			requireApply,
+			runtimeTargetArgs,
+			ports: scopedPorts,
+		});
+		if (!capabilities.ok) {
+			return { ...capabilities.outcome, json: parsed.booleans.has('--json') };
+		}
+	}
 	const creation = await loadCreationModelV1(
 		parsed,
 		scopedPorts,
@@ -1148,11 +1202,14 @@ async function runCompactCreationCommand(
 	if ('outcome' in creation) {
 		return { ...creation.outcome, json: parsed.booleans.has('--json') };
 	}
-	const intent = compileCompactCreateIntentV1({
+	const compiledIntent = compileCompactCreateIntentV1({
 		ast,
 		model: creation.model,
 		itemRef: randomUUID(),
 	});
+	const intent = periodicKind === undefined
+		? compiledIntent
+		: compilePeriodicNoteCreateIntentV1(compiledIntent, periodicKind);
 	const runtimeTargetArgs = creation.runtimeTargetArgs;
 	const preview = await runConvenienceCommand(
 		'task.create',
@@ -1185,7 +1242,12 @@ async function runCompactCreationCommand(
 	const root = scopedPorts.configRoot ?? operonCliConfigRootV1();
 	const stored = readMutationPlanV1(planRef, root);
 	if (
-		!isExpectedCompactSingleCreationPlanV1(stored.plan, intent.spec)
+		!(periodicKind === undefined
+			? isExpectedCompactSingleCreationPlanV1(stored.plan, compiledIntent.spec)
+			: isExpectedPeriodicNoteCreatePlanV1(
+				stored.plan,
+				(intent as Omit<GuidedCreationIntentV1, 'spec'> & { spec: PeriodicNoteCreateSpecV1 }).spec,
+			))
 		|| !isCompactPreviewSafeToAutoApply(preview, stored.plan, true, true)
 	) {
 		return compactPreviewOutcome(
@@ -1459,6 +1521,8 @@ async function runCompactUpdateCommand(
 		? undefined
 		: normalizeCompactValueV1(rawDescription);
 	const route = compactUpdateRouteV1(ast, parsed.values['--scope']);
+	const periodicDateScheduled = route === 'general-update'
+		&& compactUpdateChangesDateScheduledV1(ast);
 	if (
 		(id === undefined ? 0 : 1) + (rawDescription === undefined ? 0 : 1) !== 1
 		|| (description !== undefined && description.length === 0)
@@ -1468,6 +1532,18 @@ async function runCompactUpdateCommand(
 	if (id !== undefined && !OPERON_ID_PATTERN_V1.test(id)) throw new Error('INVALID_OPERON_ID');
 	const scopedPorts = withResolvedRuntimeTargetV1(parsed.values, ports);
 	const runtimeTargetArgs = runtimeTargetArgsFor(parsed.values, scopedPorts._resolvedTarget);
+	if (periodicDateScheduled) {
+		const capabilities = await requirePeriodicCapabilitiesV1({
+			preview: 'tasks.update.periodic-note.preview',
+			apply: 'tasks.update.periodic-note.apply',
+			requireApply: !parsed.booleans.has('--preview-only'),
+			runtimeTargetArgs,
+			ports: scopedPorts,
+		});
+		if (!capabilities.ok) {
+			return { ...capabilities.outcome, json: parsed.booleans.has('--json') };
+		}
+	}
 	const selector = await resolveExactDirectOperonIdV1({
 		...(id
 			? { operonId: id }
@@ -1502,7 +1578,7 @@ async function runCompactUpdateCommand(
 		});
 		if (!context.ok) return { ...context.outcome, json: parsed.booleans.has('--json') };
 		resolvedTask = context.task;
-		intent = route === 'recurrence-update'
+		const compiledIntent = route === 'recurrence-update'
 			? compileCompactRecurrenceUpdateIntentV1({
 				ast,
 				task: context.task,
@@ -1514,6 +1590,9 @@ async function runCompactUpdateCommand(
 				task: context.task,
 				catalog: context.catalog,
 			});
+		intent = periodicDateScheduled
+			? compilePeriodicNoteUpdateIntentV1(compiledIntent)
+			: compiledIntent;
 	}
 	if (
 		intent.spec.operation === 'update'
@@ -1576,7 +1655,9 @@ async function runCompactUpdateCommand(
 	const stored = readMutationPlanV1(planRef, root);
 	if (
 		!isCompactPreviewSafeToAutoApply(preview, stored.plan)
-		|| !(route === 'relationship-update'
+		|| !(periodicDateScheduled
+			? isExpectedPeriodicNoteUpdatePlanV1(stored.plan, intent.spec)
+			: route === 'relationship-update'
 			? isExpectedCompactRelationshipPlan(stored.plan, intent)
 			: route === 'recurrence-update'
 				? isExpectedCompactRecurrencePlan(stored.plan, intent)
@@ -2423,6 +2504,36 @@ async function requireDirectMutationCapabilitiesV1(options: {
 	return { ok: true };
 }
 
+async function requirePeriodicCapabilitiesV1(options: {
+	preview: RuntimeCapabilityIdV1;
+	apply: RuntimeCapabilityIdV1;
+	requireApply: boolean;
+	runtimeTargetArgs: string[];
+	ports: PublicCommandPortsV1;
+}): Promise<
+	| { ok: true }
+	| { ok: false; outcome: PublicCommandOutcomeV1 }
+> {
+	const capabilities = await runRuntimeCommand(
+		['capabilities', ...options.runtimeTargetArgs, '--json'],
+		options.ports,
+	);
+	if (
+		capabilities.exitCode !== 0
+		|| capabilities.envelope.kind !== 'cli-result'
+		|| !capabilities.envelope.ok
+	) {
+		return { ok: false, outcome: capabilities };
+	}
+	assertCapabilitiesAvailable(
+		capabilities.envelope.result,
+		[options.preview, ...(options.requireApply ? [options.apply] : [])],
+		'PERIODIC_CAPABILITY_UNAVAILABLE',
+	);
+	options.ports._capabilityAdvertisements = capabilities.envelope.result as RuntimeCapabilityAdvertisementV1[];
+	return { ok: true };
+}
+
 async function previewAndMaybeApplyDirectIntentV1(options: {
 	command: string;
 	previewCommand: string;
@@ -2991,6 +3102,35 @@ function isExpectedCompactUpdatePlan(
 			=== canonicalJsonV1(toJsonValueV1(target.locator))
 		&& canonicalJsonV1(toJsonValueV1(plan.spec))
 			=== canonicalJsonV1(toJsonValueV1(intent.spec));
+}
+
+function isExpectedPeriodicNoteCreatePlanV1(
+	plan: RuntimeSealedMutationPlanV1,
+	expectedSpec: PeriodicNoteCreateSpecV1,
+): boolean {
+	return plan.mutationKind === 'task.create'
+		&& plan.capability === 'tasks.create.periodic-note.preview'
+		&& plan.targets.length === 1
+		&& plan.createEffects?.length === 1
+		&& plan.createEffects[0]?.itemRef === expectedSpec.items[0].itemRef
+		&& plan.periodicRoute.periodicKind === expectedSpec.items[0].target.periodicKind
+		&& canonicalJsonV1(toJsonValueV1(plan.spec))
+			=== canonicalJsonV1(toJsonValueV1(expectedSpec));
+}
+
+function isExpectedPeriodicNoteUpdatePlanV1(
+	plan: RuntimeSealedMutationPlanV1,
+	expectedSpec: Record<string, unknown>,
+): boolean {
+	if (!isPeriodicNoteUpdateSpecV1(expectedSpec)) return false;
+	return plan.mutationKind === 'task.update'
+		&& plan.capability === 'tasks.update.periodic-note.preview'
+		&& plan.targets.length === 1
+		&& plan.targets[0].operonId === expectedSpec.target.operonId
+		&& canonicalJsonV1(toJsonValueV1(plan.periodicUpdate.originalLocator))
+			=== canonicalJsonV1(toJsonValueV1(expectedSpec.target.locator))
+		&& canonicalJsonV1(toJsonValueV1(plan.spec))
+			=== canonicalJsonV1(toJsonValueV1(expectedSpec));
 }
 
 export function isExpectedCompactRecurrencePlan(
@@ -3738,7 +3878,9 @@ function assertCapabilitiesAvailable(
 	const capabilities = value as CapabilityAdvertisementV1[];
 	for (const id of required) {
 		const capability = capabilities.find(candidate => candidate.id === id);
-		if (capability?.availability !== 'available') throw new Error(errorCode);
+		if (capability?.availability !== 'available') {
+			throw Object.assign(new Error(errorCode), { requiredCapability: id });
+		}
 	}
 }
 
@@ -4330,6 +4472,17 @@ async function runPlanApply(
 	if (!recovery && (record.applyRequest || record.lastOutcome)) {
 		return localRecoveryFailure('plan.apply', json, planRef);
 	}
+	const periodicApplyCapability = periodicApplyCapabilityV1(record.plan);
+	if (periodicApplyCapability !== undefined) {
+		const capabilityCheck = await requirePeriodicCapabilitiesV1({
+			preview: record.plan.capability,
+			apply: periodicApplyCapability,
+			requireApply: true,
+			runtimeTargetArgs: ['--vault', record.vaultPath],
+			ports,
+		});
+		if (!capabilityCheck.ok) return { ...capabilityCheck.outcome, json };
+	}
 	let confirmation = parsed.values['--confirm'];
 	const semanticConfirmation = semanticConfirmationWord(record.plan);
 	if (
@@ -4505,6 +4658,18 @@ async function runPlanApply(
 	};
 }
 
+function periodicApplyCapabilityV1(
+	plan: RuntimeSealedMutationPlanV1,
+): RuntimeCapabilityIdV1 | undefined {
+	if (plan.capability === 'tasks.create.periodic-note.preview') {
+		return 'tasks.create.periodic-note.apply';
+	}
+	if (plan.capability === 'tasks.update.periodic-note.preview') {
+		return 'tasks.update.periodic-note.apply';
+	}
+	return undefined;
+}
+
 function resolveRuntimeVaultArgs(
 	argv: string[],
 	ports: PublicCommandPortsV1,
@@ -4587,6 +4752,13 @@ export function convenienceMapping(command: string, spec?: Record<string, unknow
 	capability: RuntimeMutationPreviewRequestV1['capability'];
 	operation: string;
 } {
+	if (command === 'task.create' && isPeriodicNoteCreateSpecV1(spec)) {
+		return {
+			mutationKind: 'task.create',
+			capability: 'tasks.create.periodic-note.preview',
+			operation: 'create',
+		};
+	}
 	if (command === 'task.create' && isIdentityPlaceholderCreateSpecV1(spec)) {
 		return {
 			mutationKind: 'task.create',
@@ -4599,6 +4771,13 @@ export function convenienceMapping(command: string, spec?: Record<string, unknow
 			mutationKind: 'task.adopt',
 			capability: 'tasks.adopt.preview',
 			operation: 'adopt-inline',
+		};
+	}
+	if (command === 'task.update' && isPeriodicNoteUpdateSpecV1(spec)) {
+		return {
+			mutationKind: 'task.update',
+			capability: 'tasks.update.periodic-note.preview',
+			operation: 'update-periodic-note',
 		};
 	}
 	if (command === 'task.update' && spec?.operation === 'update-batch') {
@@ -4662,6 +4841,87 @@ function isIdentityPlaceholderCreateSpecV1(
 			&& item.target.representation === 'file'
 			&& item.target.identityPlaceholderPolicy === 'resolve-operon-id-v1'
 		));
+}
+
+function isPeriodicNoteCreateSpecV1(
+	spec: Record<string, unknown> | undefined,
+): spec is PeriodicNoteCreateSpecV1 {
+	return spec?.operation === 'create'
+		&& Array.isArray(spec.items)
+		&& spec.items.length === 1
+		&& isPlainRecord(spec.items[0])
+		&& isPlainRecord(spec.items[0].target)
+		&& spec.items[0].target.representation === 'inline'
+		&& spec.items[0].target.mode === 'periodic-note'
+		&& (
+			spec.items[0].target.periodicKind === 'daily'
+			|| spec.items[0].target.periodicKind === 'weekly'
+		);
+}
+
+function isPeriodicNoteUpdateSpecV1(
+	spec: Record<string, unknown> | undefined,
+): spec is Record<string, unknown> & PeriodicNoteUpdateSpecV1 {
+	return spec?.operation === 'update-periodic-note'
+		&& isPlainRecord(spec.target)
+		&& Array.isArray(spec.changes);
+}
+
+type PeriodicNoteKindV1 = 'daily' | 'weekly';
+
+function parsePeriodicNoteKindV1(value: string | undefined): PeriodicNoteKindV1 | undefined {
+	if (value === undefined) return undefined;
+	if (value === 'daily' || value === 'weekly') return value;
+	throw new Error('PERIODIC_KIND_INVALID');
+}
+
+function compilePeriodicNoteCreateIntentV1(
+	intent: GuidedCreationIntentV1,
+	periodicKind: PeriodicNoteKindV1,
+): Omit<GuidedCreationIntentV1, 'spec'> & { spec: PeriodicNoteCreateSpecV1 } {
+	if (intent.spec.items.length !== 1) throw new Error('PERIODIC_SINGLE_ITEM_REQUIRED');
+	const item = intent.spec.items[0];
+	if (item.parent !== undefined) throw new Error('PERIODIC_PARENT_FORBIDDEN');
+	if (item.bodyMarkdown !== undefined) throw new Error('PERIODIC_BODY_FORBIDDEN');
+	const { target: _target, parent: _parent, bodyMarkdown: _bodyMarkdown, ...rest } = item;
+	return {
+		...intent,
+		reason: `The user requested one ${periodicKind} periodic-note Operon task.`,
+		spec: {
+			operation: 'create',
+			items: [{
+				...rest,
+				target: {
+					representation: 'inline',
+					mode: 'periodic-note',
+					periodicKind,
+				},
+			}],
+		},
+	};
+}
+
+function compilePeriodicNoteUpdateIntentV1(
+	intent: GuidedMutationIntentV1,
+): GuidedMutationIntentV1 & { spec: PeriodicNoteUpdateSpecV1 } {
+	if (intent.target === undefined || intent.spec.operation !== 'update' || !Array.isArray(intent.spec.changes)) {
+		throw new Error('PERIODIC_UPDATE_INTENT_INVALID');
+	}
+	const { target, ...base } = intent;
+	return {
+		...base,
+		reason: 'The user requested a scheduled-date update with Plugin-owned periodic relationship semantics.',
+		spec: {
+			operation: 'update-periodic-note',
+			target,
+			changes: intent.spec.changes as PeriodicNoteUpdateSpecV1['changes'],
+		},
+	};
+}
+
+function compactUpdateChangesDateScheduledV1(ast: CompactUpdateAstV1): boolean {
+	return ast.assignments.some(item => item.key === 'dateScheduled')
+		|| ast.clearKeys.includes('dateScheduled');
 }
 
 interface CliMutationIntentInputV1 {
@@ -4923,6 +5183,7 @@ function localFailure(
 		'PLAN_VAULT_MISMATCH',
 		'RAW_MUTATION_APPLY_DISABLED',
 		'PLAN_RECOVERY_REQUIRED',
+		'PERIODIC_CAPABILITY_UNAVAILABLE',
 		'RECURRING_TEMPORAL_REQUIRES_SCOPE',
 		'RELATIONSHIP_CAPABILITY_UNAVAILABLE',
 		'RELATIONSHIP_TARGET_INCOMPLETE',
@@ -5046,6 +5307,14 @@ function localFailure(
 		'MUTATION_OPERATION_MISMATCH',
 		'PLAN_REF_REQUIRED',
 		'POSITIONAL_ARGUMENT_REQUIRED',
+		'PERIODIC_BODY_FORBIDDEN',
+		'PERIODIC_DESCRIPTION_REQUIRED',
+		'PERIODIC_INPUT_CONFLICT',
+		'PERIODIC_KIND_INVALID',
+		'PERIODIC_PARENT_FORBIDDEN',
+		'PERIODIC_REPRESENTATION_OVERRIDE',
+		'PERIODIC_SINGLE_ITEM_REQUIRED',
+		'PERIODIC_UPDATE_INTENT_INVALID',
 		'PROFILE_NAME_REQUIRED',
 		'READINESS_TIMEOUT_OUT_OF_RANGE',
 		'RECOVERY_REQUEST_REQUIRED',
@@ -5104,7 +5373,14 @@ function localFailure(
 			command,
 			ok: false,
 			error: structuredErrorV1(umbrellaCode, reason, {
-				details: { reasonCode: code.toLowerCase().replace(/_/gu, '-') },
+				details: {
+					reasonCode: code.toLowerCase().replace(/_/gu, '-'),
+					...(error instanceof Error
+						&& 'requiredCapability' in error
+						&& typeof error.requiredCapability === 'string'
+						? { requiredCapability: error.requiredCapability }
+						: {}),
+				},
 			}),
 		},
 		human: `Operon CLI failed: ${reason}${usage}`,
@@ -5276,6 +5552,15 @@ function localErrorReason(code: string): string {
 		PLAN_VAULT_MISMATCH: 'The sealed plan vault identity no longer matches its canonical vault path.',
 		RAW_MUTATION_APPLY_DISABLED: 'Mutation apply requires an owner-only stored plan reference.',
 		PLAN_RECOVERY_REQUIRED: 'This plan has an earlier apply attempt and must be handled with plan recover.',
+		PERIODIC_BODY_FORBIDDEN: 'Periodic-note creation does not accept task body Markdown.',
+		PERIODIC_CAPABILITY_UNAVAILABLE: 'The live Runtime does not advertise the required periodic-note capability.',
+		PERIODIC_DESCRIPTION_REQUIRED: 'Periodic-note creation requires one task description.',
+		PERIODIC_INPUT_CONFLICT: 'Do not combine --periodic-note with --input; typed input carries its own periodic target.',
+		PERIODIC_KIND_INVALID: 'Choose exactly daily or weekly for --periodic-note.',
+		PERIODIC_PARENT_FORBIDDEN: 'Periodic-note creation does not accept a caller-provided parent.',
+		PERIODIC_REPRESENTATION_OVERRIDE: 'Periodic-note creation does not accept inline or file representation overrides.',
+		PERIODIC_SINGLE_ITEM_REQUIRED: 'Periodic-note creation accepts exactly one task item.',
+		PERIODIC_UPDATE_INTENT_INVALID: 'Periodic scheduled-date update requires one exact target and general update changes.',
 		RECOVERY_STORE_UNAVAILABLE: 'The protected recovery store is full or unavailable; no mutation was dispatched.',
 		RECOVERY_REQUEST_REQUIRED: 'This plan has no prior apply attempt to recover.',
 		OPERON_PLUGIN_NOT_FOUND: 'The selected vault does not contain the Operon plugin.',

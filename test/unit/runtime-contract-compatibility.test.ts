@@ -21,6 +21,8 @@ import {
 	identityWorkflowPlanV1,
 	identityWorkflowPreviewResultV1,
 	identityWorkflowResultEnvelopeV1,
+	periodicCreateWorkflowPreviewResultV1,
+	periodicUpdateWorkflowPreviewResultV1,
 	taskWorkflowAppliedResultV1,
 } from '../fixtures/task-workflow-contract';
 
@@ -97,9 +99,91 @@ assert.equal(isTaskWorkflowInvocationV1(adoptInvocation), true);
 assert.equal(decodeRuntimeCliInvocationV1(adoptInvocation).ok, true);
 assert.equal(decodeBaseCliInvocationV1(adoptInvocation).ok, false, 'frozen core must reject adopt preview');
 
+const periodicCreateRequest: Extract<
+	TaskWorkflowPreviewRequestV1,
+	{ capability: 'tasks.create.periodic-note.preview' }
+> = {
+	contractVersion: 1,
+	requestId: 'periodic-create-route',
+	kind: 'mutation-preview',
+	clientInstanceId: TASK_WORKFLOW_CLIENT_ID,
+	idempotencyKey: 'periodic-create-key-0001',
+	capability: 'tasks.create.periodic-note.preview',
+	mutationKind: 'task.create',
+	spec: {
+		operation: 'create',
+		items: [{
+			itemRef: 'periodic-1',
+			description: 'Weekly child',
+			target: { representation: 'inline', mode: 'periodic-note', periodicKind: 'weekly' },
+			fields: [{ kind: 'date', field: 'dateScheduled', value: '2026-08-23' }],
+		}],
+	},
+	authorization: { basis: 'user-explicit-request' },
+};
+const periodicCreateInvocation = {
+	...filterInvocation,
+	requestId: periodicCreateRequest.requestId,
+	command: 'mutation.preview',
+	request: periodicCreateRequest,
+};
+assert.equal(isTaskWorkflowInvocationV1(periodicCreateInvocation), true);
+assert.equal(decodeRuntimeCliInvocationV1(periodicCreateInvocation).ok, true);
+assert.equal(decodeBaseCliInvocationV1(periodicCreateInvocation).ok, false, 'frozen core must reject periodic create');
+const periodicCreatePreview = periodicCreateWorkflowPreviewResultV1(periodicCreateRequest);
+if (!periodicCreatePreview.ok) throw new Error('expected periodic create preview success');
+const periodicCreatePlan = periodicCreatePreview.plan as Extract<TaskWorkflowSealedPlanV1, { capability: 'tasks.create.periodic-note.preview' }>;
+assert.equal(admitRuntimeMutationPreviewPlanV1(periodicCreateRequest, periodicCreatePlan).ok, true);
+const tamperedPeriodicCreatePlan = structuredClone(periodicCreatePlan);
+tamperedPeriodicCreatePlan.spec.items[0].description = 'Tampered child';
+assert.equal(
+	admitRuntimeMutationPreviewPlanV1(periodicCreateRequest, rehashPlan(tamperedPeriodicCreatePlan)).ok,
+	false,
+	'periodic create preview must remain exact-request bound',
+);
+
+const periodicUpdateRequest: Extract<
+	TaskWorkflowPreviewRequestV1,
+	{ capability: 'tasks.update.periodic-note.preview' }
+> = {
+	contractVersion: 1,
+	requestId: 'periodic-update-route',
+	kind: 'mutation-preview',
+	clientInstanceId: TASK_WORKFLOW_CLIENT_ID,
+	idempotencyKey: 'periodic-update-key-0001',
+	capability: 'tasks.update.periodic-note.preview',
+	mutationKind: 'task.update',
+	spec: {
+		operation: 'update-periodic-note',
+		target: { operonId: 'abc1234', locator: { representation: 'inline', filePath: 'Tasks.md', lineNumber: 4 } },
+		changes: [{ field: 'dateScheduled', valueType: 'date', value: '2026-08-24' }],
+	},
+	authorization: { basis: 'user-explicit-request' },
+};
+const periodicUpdateInvocation = {
+	...filterInvocation,
+	requestId: periodicUpdateRequest.requestId,
+	command: 'mutation.preview',
+	request: periodicUpdateRequest,
+};
+assert.equal(isTaskWorkflowInvocationV1(periodicUpdateInvocation), true);
+assert.equal(decodeRuntimeCliInvocationV1(periodicUpdateInvocation).ok, true);
+assert.equal(decodeBaseCliInvocationV1(periodicUpdateInvocation).ok, false, 'frozen core must reject periodic update');
+const periodicUpdatePreview = periodicUpdateWorkflowPreviewResultV1(periodicUpdateRequest);
+if (!periodicUpdatePreview.ok) throw new Error('expected periodic update preview success');
+const periodicUpdatePlan = periodicUpdatePreview.plan as Extract<TaskWorkflowSealedPlanV1, { capability: 'tasks.update.periodic-note.preview' }>;
+assert.equal(admitRuntimeMutationPreviewPlanV1(periodicUpdateRequest, periodicUpdatePlan).ok, true);
+assert.equal(admitRuntimeMutationPreviewPlanV1(periodicUpdateRequest, rehashPlan({
+	...periodicUpdatePlan,
+	periodicUpdate: { ...periodicUpdatePlan.periodicUpdate, originalLocator: { representation: 'inline', filePath: 'Moved.md', lineNumber: 1 } },
+})).ok, false, 'periodic update preview must preserve the sealed physical locator');
+
 const identityPreviewPlan = identityWorkflowPlanV1();
 if (identityPreviewPlan.mutationKind !== 'task.create') throw new Error('expected identity plan');
-const identityPreviewRequest: Extract<TaskWorkflowPreviewRequestV1, { mutationKind: 'task.create' }> = {
+const identityPreviewRequest: Extract<
+	TaskWorkflowPreviewRequestV1,
+	{ capability: 'tasks.create.identity-placeholders' }
+> = {
 	contractVersion: 1 as const,
 	requestId: 'identity-apply-route',
 	kind: 'mutation-preview' as const,

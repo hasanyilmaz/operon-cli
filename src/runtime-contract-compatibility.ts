@@ -64,6 +64,12 @@ export function isTaskWorkflowPlanV1(value: unknown): value is TaskWorkflowSeale
 	) || (
 		value.mutationKind === 'task.create'
 		&& value.capability === 'tasks.create.identity-placeholders'
+	) || (
+		value.mutationKind === 'task.create'
+		&& value.capability === 'tasks.create.periodic-note.preview'
+	) || (
+		value.mutationKind === 'task.update'
+		&& value.capability === 'tasks.update.periodic-note.preview'
 	);
 }
 
@@ -159,7 +165,21 @@ export function admitRuntimeMutationPreviewPlanV1(
 	}
 	if (request.mutationKind === 'task.create' && plan.mutationKind === 'task.create') {
 		if (!canonicalEqual(plan.spec, request.spec)) {
-			issues.push(issue('/plan/spec', 'Identity-placeholder plan spec must exactly preserve the preview request spec.'));
+			issues.push(issue('/plan/spec', 'Task workflow create plan must exactly preserve the preview request spec.'));
+		}
+	} else if (request.mutationKind === 'task.update' && plan.mutationKind === 'task.update') {
+		if (!canonicalEqual(plan.spec, request.spec)) {
+			issues.push(issue('/plan/spec', 'Periodic task update plan must exactly preserve the preview request spec.'));
+		}
+		if (
+			plan.capability === 'tasks.update.periodic-note.preview'
+			&& request.capability === 'tasks.update.periodic-note.preview'
+			&& (
+				!canonicalEqual(plan.periodicUpdate.originalLocator, request.spec.target.locator)
+				|| !canonicalEqual(plan.targets[0]?.locator, request.spec.target.locator)
+			)
+		) {
+			issues.push(issue('/plan/periodicUpdate/originalLocator', 'Periodic task update plan must preserve the exact physical task locator.'));
 		}
 	} else if (request.mutationKind === 'task.adopt' && plan.mutationKind === 'task.adopt') {
 		const projected = {
@@ -207,6 +227,12 @@ function isTaskWorkflowPlanDiscriminator(value: Record<string, unknown>): boolea
 	) || (
 		value.mutationKind === 'task.create'
 		&& value.capability === 'tasks.create.identity-placeholders'
+	) || (
+		value.mutationKind === 'task.create'
+		&& value.capability === 'tasks.create.periodic-note.preview'
+	) || (
+		value.mutationKind === 'task.update'
+		&& value.capability === 'tasks.update.periodic-note.preview'
 	);
 }
 

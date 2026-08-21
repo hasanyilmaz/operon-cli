@@ -498,6 +498,7 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		usage: [
 			'operon task create [description] [--preview-only] [--vault <path>|--profile <alias>]',
 			'operon task create [inline|file] "Description" [key::"VALUE"...] [--preview-only] [--json]',
+			'operon task create "Description" --periodic-note <daily|weekly> [key::"VALUE"...] [--preview-only] [--json]',
 			'operon task create --input-format compact --input <file|-> [--json]',
 			'operon task create --input-format compact-lines --input <file|-> [--json]',
 			'operon task create --input <file|-> [--vault <path>|--profile <alias>] [--json]',
@@ -505,6 +506,7 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		options: [
 			...INPUT_OPTIONS,
 			'--input-format <json|compact|compact-lines>  Parse typed JSON, one compact record, or 1-64 compact lines.',
+			'--periodic-note <daily|weekly>  Route one inline task through Plugin-owned Daily or Weekly note semantics.',
 			'--preview-only        Keep the reviewed create plan without applying it.',
 			'description            Optional guided-mode task text.',
 		],
@@ -512,6 +514,8 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 				'operon task create',
 				'operon task create inline "CLI test task" status::"EXACT LIVE PIPELINE.STATUS"',
 				'operon task create "Follow up" dateDue::"2026-08-01" reminderRules::"dateDue.30m"',
+				'operon task create "Daily review" --periodic-note daily dateScheduled::"2026-08-21"',
+				'operon task create "Weekly review" --periodic-note weekly datetimeStart::"2026-08-21T09:00:00"',
 				'operon task create --input-format compact --input - --json',
 				'operon task create --input-format compact-lines --input - --json',
 				'operon task create --input intent.json --json',
@@ -520,9 +524,10 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 			positionalValues: ['inline', 'file'],
 			optionValues: {
 				'--input-format': ['json', 'compact', 'compact-lines'],
+				'--periodic-note': ['daily', 'weekly'],
 			},
 		},
-			safety: 'Human compact argv automatically applies one unchanged safe preview unless --preview-only is used. Agent compact and compact-lines stdin always preview only; compact-lines parses and compiles every record before one preview and never auto-applies multi-source plans. Apply the returned unchanged planRef separately. Temporal, compact-batch, and advanced typed create features require matching versioned advertisements in both the CLI manifest and live Runtime creation Catalog. Cross-source graph operations require the matching graph transaction gate, fresh confirmation, and same-plan recovery. Positional text may appear in shell history and process listings.',
+		safety: 'Human compact argv automatically applies one unchanged safe preview unless --preview-only is used. --periodic-note requires one task, never accepts --route-date, and sends only a typed Daily or Weekly intent; settings, templates, placement, Markdown, containers, registry writes, and recovery remain Plugin-owned. Agent compact and compact-lines stdin always preview only; compact-lines parses and compiles every record before one preview and never auto-applies multi-source plans. Apply the returned unchanged planRef separately. Temporal, compact-batch, and advanced typed create features require matching versioned advertisements in both the CLI manifest and live Runtime creation Catalog. Cross-source graph operations require the matching graph transaction gate, fresh confirmation, and same-plan recovery. Positional text may appear in shell history and process listings.',
 		contract: { mutationKind: 'task.create', targetPolicy: 'forbidden' },
 	},
 	{
@@ -560,6 +565,7 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		usage: [
 			'operon task update [--vault <path>|--profile <alias>]',
 			'operon task update (--id <operon-id>|--description <exact-description>) {key::"VALUE"|--clear <key>}... [--preview-only] [--json]',
+			'operon task update (--id <operon-id>|--description <exact-description>) {dateScheduled::"YYYY-MM-DD"|--clear dateScheduled} [other general fields...] [--preview-only] [--json]',
 			'operon task update (--id <operon-id>|--description <exact-description>) --scope <this-task|this-and-following> {dateScheduled::"YYYY-MM-DD"|dateStarted::"YYYY-MM-DD"|dateDue::"YYYY-MM-DD"|datetimeStart::"YYYY-MM-DDTHH:mm:ss"|datetimeEnd::"YYYY-MM-DDTHH:mm:ss"|estimate::"SECONDS"|--clear <recurrence-key>}... [--preview-only] [--json]',
 			'operon task update (--id <operon-id>|--description <exact-description>) repeat::"<normalized-rule>" [datetimeRepeatEnd::"YYYY-MM-DDTHH:mm:ss"] [--scope this-and-following] [--preview-only] [--json]',
 			'operon task update (--id <operon-id>|--description <exact-description>) {parentTask::"<operon-id>"|blocking::"<operon-id>; ..."|blockedBy::"<operon-id>; ..."|--clear <relationship-key>}... [--preview-only] [--json]',
@@ -595,7 +601,7 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 				'--scope': ['this-task', 'this-and-following'],
 			},
 		},
-		safety: 'Human compact argv automatically applies one unchanged warning-free update plan unless --preview-only is used. Compact-lines requires 2-64 unique exact --id records, validates all lines before one coherent multi-ID readiness request, returns one preview-only planRef, and has no sequential fallback. It admits only general updates that resolve to one inline source and one atomic plan. Recurring temporal changes require --scope; starting recurrence on a non-recurring task defaults to this-and-following. Recurrence updates and relationship replacements cannot be mixed with general field updates. Typed --input only previews and returns a planRef. Exact-description targeting must resolve to one live source task. Agents should keep sensitive values in typed stdin.',
+		safety: 'Human compact argv automatically applies one unchanged warning-free update plan unless --preview-only is used. A single-task dateScheduled set or clear without caller-owned parentTask uses Plugin-owned periodic detach or realignment semantics and never moves task Markdown. Compact-lines requires 2-64 unique exact --id records, validates all lines before one coherent multi-ID readiness request, returns one preview-only planRef, and has no sequential fallback. It admits only general updates that resolve to one inline source and one atomic plan. Recurring temporal changes require --scope; starting recurrence on a non-recurring task defaults to this-and-following. Recurrence updates and relationship replacements cannot be mixed with general field updates. Typed --input only previews and returns a planRef. Exact-description targeting must resolve to one live source task. Agents should keep sensitive values in typed stdin.',
 		contract: {
 			mutationKind: 'task.update',
 			mutationKindRoutes: [

@@ -279,7 +279,7 @@ export type OperonCatalogV1 = OperonCatalogResultBaseV1 & ({
     fields?: never;
     policies?: never;
 });
-export declare const GENERAL_UPDATE_BUILT_IN_KEYS_V1: readonly ["description", "priority", "dateDue", "dateScheduled", "dateStarted", "datetimeStart", "datetimeEnd", "estimate", "assignees", "contexts", "tags", "taskIcon", "taskColor", "note", "location", "links"];
+export declare const GENERAL_UPDATE_BUILT_IN_KEYS_V1: readonly ["description", "priority", "dateDue", "dateScheduled", "dateStarted", "datetimeStart", "datetimeEnd", "estimate", "assignees", "contexts", "tags", "taskType", "taskIcon", "taskColor", "note", "location", "links", "taskImage", "taskGallery"];
 export type GeneralUpdateBuiltInKeyV1 = typeof GENERAL_UPDATE_BUILT_IN_KEYS_V1[number];
 export declare const RECURRENCE_UPDATE_KEYS_V1: readonly ["repeat", "datetimeRepeatEnd", "dateScheduled", "dateStarted", "dateDue", "datetimeStart", "datetimeEnd", "estimate"];
 export type RecurrenceUpdateKeyV1 = typeof RECURRENCE_UPDATE_KEYS_V1[number];

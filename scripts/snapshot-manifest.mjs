@@ -30,24 +30,25 @@ const projection = {
 	kind: 'operon-cli-plugin-snapshot',
 	origin: {
 		repository: 'https://github.com/hasanyilmaz/operon',
-		pluginCheckpointCommit: 'bc3e34f2e7b1acb6f7e52a9f481df295dc179f98',
-		pluginTreeOid: 'c5467b52254c06a0a35bec38ec5d3d8119d718ea',
-		contractSourceTreeOid: 'b08b9c9ce2d60a00beb5ed312d28ba571e968942',
+		pluginCheckpointCommit: '3f00fa69c036db4818dace7ea12366ec5d8ad73a',
+		pluginTreeOid: '3937f3a95947c476df6fea5f58005dcdf1033e70',
+		contractSourceTreeOid: '715a63d03d36f9a04ba9d2d292e2b4037edbc73d',
 		publicTypeSourceTreeOid: '7f86bf8212e6a58fe9dd44abd9818cada542907f',
-		runtimeSchemaTreeOid: 'bd2175490f0357c336603ce7d56a06b20a8b1491',
-		taskWorkflowExtensionSourceTreeOid: '52212124a7ee6b66ae50e0386c54a39a1ec17c3a',
-		taskWorkflowExtensionSchemaTreeOid: 'b2207bb0c7c46754d6ddab24b59834cf70d2e2c3',
+		runtimeSchemaTreeOid: '421474db07a9603e547e5bcd08fdaa2f1d68b068',
+		taskWorkflowExtensionSourceTreeOid: '1f03fa7b68819b77e0449a10d5d8b6bdde2c072f',
+		taskWorkflowExtensionSchemaTreeOid: 'b865ba3ce4d9b6646475d998dfa2d472a214b9e8',
 	},
 	runtimeV1: {
 		contractVersion: 1,
 		contractDigest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
-		schemaAggregateSha256: '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
+		schemaAggregateSha256: '7f0123fc1da01ca5d10d02c8a95def5aae2bac9086ad19787dae547d94b59d8f',
 	},
 	extensions: {
 		taskWorkflowsV1: {
 			extensionId: 'task-workflows-v1',
 			contractVersion: 1,
-			aggregateSha256: '5a5a4c18a225b693054988615f0565f92293f7489b46563aaa1e107118c6fc1c',
+			baseSchemaManifestAggregateSha256: '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
+			aggregateSha256: '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc',
 		},
 	},
 	toolchain: {
@@ -92,7 +93,7 @@ assert.equal(
 );
 assert.equal(
 	taskWorkflowExtensionManifest.baseSchemaManifestAggregateSha256,
-	document.runtimeV1.schemaAggregateSha256,
+	document.extensions.taskWorkflowsV1.baseSchemaManifestAggregateSha256,
 );
 assert.equal(
 	taskWorkflowExtensionManifest.aggregateSha256,
