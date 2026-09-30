@@ -144,6 +144,7 @@ async function run(): Promise<void> {
 		await testOneShotPersistentReadRouting();
 		await testAbortTransportGuards();
 	}
+	await testSpawnKeepsStdinOpenUntilExit();
 	testRenderingAndExitCodes();
 	testHumanRendererCoverage();
 	await testGuidedCreationModel();
@@ -2180,6 +2181,37 @@ async function testAbortTransportGuards(): Promise<void> {
 		rmSync(vault, { recursive: true, force: true });
 		rmSync(requestRoot, { recursive: true, force: true });
 	}
+}
+
+async function testSpawnKeepsStdinOpenUntilExit(): Promise<void> {
+	// Models the Obsidian CLI client: it forwards stdin to the app socket, and
+	// an early stdin EOF makes the app drop a response that is still pending.
+	const fakeObsidianClient = [
+		"let eof = false;",
+		"process.stdin.on('end', () => { eof = true; });",
+		"process.stdin.resume();",
+		"setTimeout(() => {",
+		"  process.stdout.write(eof ? 'STDIN_EOF_BEFORE_RESPONSE' : '{\"ok\":true}');",
+		"  process.exit(0);",
+		"}, 150);",
+	].join('\n');
+	const result = await runObsidianProcessV1(
+		process.execPath,
+		['-e', fakeObsidianClient],
+		{ cwd: tmpdir(), timeoutMs: 10_000 },
+	);
+	assert.equal(result.exitCode, 0);
+	assert.equal(result.spawnErrorCode, undefined);
+	assert.equal(result.stdout.toString('utf8'), '{"ok":true}');
+
+	// A child that exits at once without touching stdin must still settle cleanly.
+	const quick = await runObsidianProcessV1(
+		process.execPath,
+		['-e', 'process.exit(0)'],
+		{ cwd: tmpdir(), timeoutMs: 10_000 },
+	);
+	assert.equal(quick.exitCode, 0);
+	assert.equal(quick.spawnErrorCode, undefined);
 }
 
 function testRenderingAndExitCodes(): void {

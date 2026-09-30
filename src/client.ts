@@ -821,14 +821,23 @@ export async function runObsidianProcessV1(
 		let spawnErrorCode: string | undefined;
 		let settled = false;
 		let forcedSettlementTimer: NodeJS.Timeout | undefined;
+		// stdin stays an open, silent pipe until the child exits. The Obsidian
+		// CLI client pipes its stdin into the app's CLI socket. An ignored stdin
+		// (/dev/null) hits EOF at once, the client half-closes the socket, and
+		// the app's server (allowHalfOpen false) then drops any handler response
+		// that is not ready yet. Slow handlers such as mutation apply lost their
+		// result that way while the mutation itself still ran.
 		const child = spawn(executable, args, {
 			cwd: options.cwd,
-			stdio: ['ignore', 'pipe', 'pipe'],
+			stdio: ['pipe', 'pipe', 'pipe'],
 			env: process.env,
 		});
+		// The child may exit without reading stdin; never let EPIPE escape.
+		child.stdin.on('error', () => undefined);
 		const settle = (exitCode: number | null, signal: NodeJS.Signals | null) => {
 			if (settled) return;
 			settled = true;
+			child.stdin.destroy();
 			clearTimeout(timer);
 			if (forcedSettlementTimer) clearTimeout(forcedSettlementTimer);
 			options.signal?.removeEventListener('abort', abort);
