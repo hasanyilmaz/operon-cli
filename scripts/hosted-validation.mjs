@@ -15,7 +15,7 @@ import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const NPM_VERSION = '11.12.1';
-const PRIVATE_WORKFLOW_SHA256 = '028701e0e8665dc7091989b109caf075f7a6c205f12b34b9e7affc90718a7ceb';
+const PRIVATE_WORKFLOW_SHA256 = '89457340beee74f20a0822a42619edcd3e2caef7e765aff07d1a588cdadfec47';
 const NPM_TARBALL = 'https://registry.npmjs.org/npm/-/npm-11.12.1.tgz';
 const NPM_INTEGRITY = 'sha512-zcoUuF1kezGSAo0CqtvoLXX3mkRqzuqYdL6Y5tdo8g69NVV3CkjQ6ZBhBgB4d7vGkPcV6TcvLi3GRKPDFX+xTA==';
 const LEGACY = Object.freeze({
@@ -60,7 +60,7 @@ async function workflowCheck(workflowPath = path.join(projectRoot, '.github', 'w
 		'fail-fast: false',
 		'max-parallel: 3',
 		'ubuntu-24.04',
-		'macos-14',
+		'macos-15',
 		'windows-2022',
 		'windows-2025',
 		'hosted-validation-gate:',
@@ -176,7 +176,7 @@ async function compareCandidates(inputRoot, outputRoot) {
 	const expectedGithub = expectedGithubIdentity();
 	const expectedProducers = new Map([
 		['canonical-ubuntu-24.04', { runnerId: 'ubuntu-24.04', runnerOs: 'Linux', imageOs: 'ubuntu24', platform: 'linux' }],
-		['canonical-macos-14', { runnerId: 'macos-14', runnerOs: 'macOS', imageOs: 'macos14', platform: 'darwin' }],
+		['canonical-macos-15', { runnerId: 'macos-15', runnerOs: 'macOS', imageOs: 'macos15', platform: 'darwin' }],
 		['canonical-windows-2022', { runnerId: 'windows-2022', runnerOs: 'Windows', imageOs: 'win22', platform: 'win32' }],
 		['canonical-windows-2025', { runnerId: 'windows-2025', runnerOs: 'Windows', imageOs: 'win25-vs2026', platform: 'win32' }],
 	]);
