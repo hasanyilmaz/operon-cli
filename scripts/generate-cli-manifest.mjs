@@ -71,7 +71,7 @@ try {
 		schemas,
 		schemaEntrypoints,
 	);
-	assert.equal(manifest.contractDigest, 'd4d9d977836973d22800b04bcf3d82c0462a59f6275efd3685f89fb738ee058e');
+	assert.equal(manifest.contractDigest, 'bf073d0e4d8ae881c1637f9142430193af9c6cc8ae2404ac85fbf412b138aa50');
 	const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 	const target = path.join(projectRoot, 'cli-manifest-v1.json');
 	if (mode === '--write') await writeFile(target, serialized, 'utf8');

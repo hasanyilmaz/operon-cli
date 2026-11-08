@@ -99,12 +99,13 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		section: 'system',
 		summary: 'Configure an Operon vault interactively or with explicit flags.',
 		usage: [
-			'operon setup',
-			'operon setup --vault <path> --name <alias> [--default] [--live] [--json]',
+			'operon setup [--config-dir <name>]',
+			'operon setup --vault <path> --name <alias> [--config-dir <name>] [--default] [--live] [--json]',
 		],
 		options: [
 			'--vault <path>       Obsidian vault to register.',
 			'--name <alias>      Local profile name.',
+			'--config-dir <name>  Folder from Obsidian’s Override config folder setting.',
 			'--default           Make this the default profile.',
 			'--live              Also verify the running Operon Runtime.',
 			'--json              Emit a JSON result envelope.',
@@ -112,6 +113,7 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		examples: [
 			'operon setup',
 			'operon setup --vault "/path/to/vault" --name work --default',
+			'operon setup --vault "/path/to/vault" --name work --config-dir .obsidian-desktop',
 		],
 		safety: 'Setup stores only local vault identity and profile metadata; it does not change Operon settings.',
 	},
@@ -121,15 +123,16 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		route: 'local',
 		section: 'system',
 		summary: 'Check the selected vault, plugin, platform, and optional live Runtime.',
-		usage: ['operon doctor [--vault <path>|--profile <alias>] [--live] [--repair-security] [--json]'],
+		usage: ['operon doctor [--vault <path> [--config-dir <name>] | --profile <alias>] [--live] [--repair-security] [--json]'],
 		options: [
 			'--vault <path>       Use an explicit Obsidian vault.',
 			'--profile <alias>    Use a configured vault profile.',
+			'--config-dir <name>  Check the Override config folder for this --vault invocation.',
 			'--live              Verify the running Operon Runtime.',
 			'--repair-security   Repair only the verified CLI storage root permissions.',
 			'--json              Emit a JSON result envelope.',
 		],
-		examples: ['operon doctor --live'],
+		examples: ['operon doctor --live', 'operon doctor --vault "/path/to/vault" --config-dir .obsidian-desktop'],
 	},
 	{
 		id: 'completion',

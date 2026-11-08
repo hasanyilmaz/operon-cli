@@ -89,14 +89,15 @@ import {
 	type ResolvedVaultCommandScopeV1,
 	assertResolvedVaultCommandScopeV1,
 	createResolvedVaultCommandScopeV1,
+	isConfigDirectoryNameV1,
 	loadOperonCliConfigV1,
 	operonCliConfigRootV1,
 	removeVaultProfileV1,
+	resolveOperonInstallationV1,
 	resolveVaultV1,
 	saveOperonCliConfigV1,
 	setDefaultVaultProfileV1,
 	upsertVaultProfileV1,
-	validateOperonManifestV1,
 } from './config';
 import {
 	askGuidedApplyV1,
@@ -4345,12 +4346,14 @@ async function runSetup(
 	root: string,
 ): Promise<PublicCommandOutcomeV1> {
 	const parsed = parseFlags(argv, {
-		value: ['--vault', '--name', '--obsidian-bin'],
+		value: ['--vault', '--name', '--config-dir', '--obsidian-bin'],
 		boolean: ['--default', '--live', '--json'],
 	});
-	const current = loadOperonCliConfigV1(root);
 	let vaultPath = parsed.values['--vault'];
 	let name = parsed.values['--name'];
+	let configDir = parsed.values['--config-dir'];
+	if (configDir !== undefined && !isConfigDirectoryNameV1(configDir)) throw new Error('INVALID_CONFIG_DIR');
+	const current = loadOperonCliConfigV1(root);
 	let makeDefault = parsed.booleans.has('--default');
 	let verifyLive = parsed.booleans.has('--live');
 	let guided = false;
@@ -4370,6 +4373,7 @@ async function runSetup(
 				port: terminal.port,
 				config: current,
 				cwd: ports.cwd ?? process.cwd(),
+				configDir,
 			});
 		} finally {
 			terminal.close();
@@ -4378,35 +4382,37 @@ async function runSetup(
 		if (result.status === 'cancelled') {
 			return localSuccess('setup', false, { cancelled: true }, result.message);
 		}
-		({ vaultPath, name, makeDefault, verifyLive } = result.selection);
+		({ vaultPath, name, configDir, makeDefault, verifyLive } = result.selection);
 	} else if (!vaultPath || !name) {
 		throw new Error('SETUP_ARGUMENTS_REQUIRED');
 	}
-	const config = upsertVaultProfileV1(current, {
+	const { config, profile, manifest } = upsertVaultProfileV1(current, {
 		name,
 		vaultPath,
+		configDir,
 		makeDefault,
 	});
-	const resolved = resolveVaultV1(config, { explicitProfile: name });
-	const manifest = validateOperonManifestV1(resolved.canonicalPath);
+	const folderLabel = `Obsidian config folder: ${sanitizeTerminalTextV1(profile.configDir)}`;
 	saveOperonCliConfigV1(config, root);
 	let live: unknown;
 	if (verifyLive) {
 		const runtime = await runRuntimeCommand([
 			'diagnostics',
 			'--vault',
-			resolved.canonicalPath,
+			profile.canonicalPath,
 			...(parsed.values['--obsidian-bin'] ? ['--obsidian-bin', parsed.values['--obsidian-bin']] : []),
 			'--json',
 		], { ...ports, configRoot: root });
 		if (runtime.exitCode !== 0) {
+			addLocalManifestCheckV1(runtime, profile.configDir, manifest.version);
 			return {
 				...runtime,
-				json: false,
+				json,
 				human: [
 					'Local setup saved; live verification incomplete.',
+					folderLabel,
 					runtime.human,
-					'Retry: operon doctor --live',
+					`Retry with operon doctor --live --profile ${profile.name}`,
 				].join('\n'),
 			};
 		}
@@ -4414,11 +4420,12 @@ async function runSetup(
 	}
 	const completionHint = guided ? completionHintForShellV1(process.env.SHELL) : undefined;
 	return localSuccess('setup', json, {
-		profile: config.profiles.find(profile => profile.name === name),
+		profile,
 		plugin: manifest,
 		...(live ? { live } : {}),
 	}, [
 		`Configured Operon vault profile: ${name}${live ? ' (live verified)' : ''}`,
+		folderLabel,
 		...(guided ? [
 			'✓ Vault and Operon plugin verified',
 			`✓ Profile saved${makeDefault ? ' as default' : ''}`,
@@ -4435,9 +4442,14 @@ async function runDoctor(
 	root: string,
 ): Promise<PublicCommandOutcomeV1> {
 	const parsed = parseFlags(argv, {
-		value: ['--vault', '--profile', '--obsidian-bin'],
+		value: ['--vault', '--profile', '--config-dir', '--obsidian-bin'],
 		boolean: ['--live', '--repair-security', '--json'],
 	});
+	const configDirOverride = parsed.values['--config-dir'];
+	if (configDirOverride !== undefined) {
+		if (!parsed.values['--vault'] || parsed.values['--profile']) throw new Error('DOCTOR_CONFIG_DIR_REQUIRES_VAULT');
+		if (!isConfigDirectoryNameV1(configDirOverride)) throw new Error('INVALID_CONFIG_DIR');
+	}
 	const repairedSecurity = parsed.booleans.has('--repair-security')
 		? repairCliStorageSecurityV1(root)
 		: undefined;
@@ -4447,7 +4459,10 @@ async function runDoctor(
 		explicitProfile: parsed.values['--profile'],
 		cwd: ports.cwd ?? process.cwd(),
 	});
-	const manifest = validateOperonManifestV1(resolved.canonicalPath);
+	const { configDir, manifest } = resolveOperonInstallationV1(
+		resolved.canonicalPath,
+		configDirOverride ?? resolved.configDir,
+	);
 	const security = repairedSecurity ?? inspectCliStorageSecurityV1(root);
 	if (!security.secure) throw new Error(
 		`CLI_STORAGE_SECURITY_UNAVAILABLE:${security.failureReason ?? 'SECURITY_CHECK_FAILED'}`,
@@ -4462,10 +4477,15 @@ async function runDoctor(
 			'--json',
 		], { ...ports, configRoot: root });
 		if (runtime.exitCode !== 0) {
+			addLocalManifestCheckV1(runtime, configDir, manifest.version);
 			return {
 				...runtime,
 				json,
-				human: `${runtime.human}\n${doctorRemediationV1(runtime)}`,
+				human: [
+					`Local Operon manifest verified in ${sanitizeTerminalTextV1(configDir)}.`,
+					runtime.human,
+					doctorRemediationV1(runtime),
+				].join('\n'),
 			};
 		}
 		live = runtime.envelope;
@@ -4479,12 +4499,18 @@ async function runDoctor(
 			...security,
 			repaired: parsed.booleans.has('--repair-security'),
 		},
-		vault: resolved,
+		vault: { ...resolved, configDir },
 		plugin: manifest,
 		...(live ? { live } : {}),
 	}, `Operon doctor: vault and plugin valid${live ? ', Runtime verified' : ''}; ${
 		security.backend
 	} storage security valid.`);
+}
+
+function addLocalManifestCheckV1(outcome: PublicCommandOutcomeV1, configDir: string, version: string): void {
+	const { envelope } = outcome;
+	const error = envelope.kind === 'cli-result' ? envelope.failure?.error : envelope.error;
+	if (error) error.details = { ...error.details, localInstallation: { configDir, version } };
 }
 
 function doctorRemediationV1(outcome: PublicCommandOutcomeV1): string {
@@ -5380,6 +5406,7 @@ function localFailure(
 		'CONFIG_ROOT_WRONG_MODE',
 		'CONFIG_ROOT_WRONG_OWNER',
 		'CONFIG_UNKNOWN_FIELD',
+		'OPERON_CONFIG_DIRECTORY_UNAVAILABLE',
 		'PLAN_EXPIRED',
 		'PLAN_MALFORMED',
 		'PLAN_NOT_SECURE',
@@ -5396,6 +5423,11 @@ function localFailure(
 	)
 		? sanitizeTerminalTextV1(error.publicReason)
 		: localErrorReason(code);
+	const configDirectories = error instanceof Error
+		&& 'configDirectories' in error
+		&& Array.isArray(error.configDirectories)
+		? error.configDirectories.filter(isConfigDirectoryNameV1)
+		: undefined;
 	const usageCodes = new Set([
 		'COMPACT_BATCH_BLANK_LINE',
 		'COMPACT_BATCH_EMPTY',
@@ -5478,6 +5510,7 @@ function localFailure(
 		'INVALID_INTEGER',
 		'INVALID_PARENT_TASK',
 		'INVALID_PLAN_REF',
+		'INVALID_CONFIG_DIR',
 		'INVALID_PRIORITY',
 		'INVALID_PROFILE_NAME',
 		'INVALID_SCHEMA_ID',
@@ -5509,6 +5542,9 @@ function localFailure(
 		'SCHEMA_ID_REQUIRED',
 		'SCHEMA_NOT_FOUND',
 		'SETUP_ARGUMENTS_REQUIRED',
+		'DOCTOR_CONFIG_DIR_REQUIRES_VAULT',
+		'OPERON_CONFIG_DIRECTORY_AMBIGUOUS',
+		'OPERON_CONFIG_DIRECTORY_SCAN_LIMIT',
 		'SET_CLEAR_CONFLICT',
 		'TARGET_NOT_ALLOWED',
 		'TASK_GET_REQUIRES_EXACTLY_ONE_SELECTOR_INPUT',
@@ -5556,6 +5592,7 @@ function localFailure(
 			error: structuredErrorV1(umbrellaCode, reason, {
 				details: {
 					reasonCode: code.toLowerCase().replace(/_/gu, '-'),
+					...(configDirectories ? { configDirectories } : {}),
 					...(error instanceof Error
 						&& 'requiredCapability' in error
 						&& typeof error.requiredCapability === 'string'
@@ -5564,7 +5601,10 @@ function localFailure(
 				},
 			}),
 		},
-		human: `Operon CLI failed: ${reason}${usage}`,
+		human: [
+			`Operon CLI failed: ${reason}${usage}`,
+			...(configDirectories?.map(name => `  ${sanitizeTerminalTextV1(name)}`) ?? []),
+		].join('\n'),
 	};
 }
 
@@ -5749,6 +5789,11 @@ function localErrorReason(code: string): string {
 		RECOVERY_STORE_UNAVAILABLE: 'The protected recovery store is full or unavailable; no mutation was dispatched.',
 		RECOVERY_REQUEST_REQUIRED: 'This plan has no prior apply attempt to recover.',
 		OPERON_PLUGIN_NOT_FOUND: 'The selected vault does not contain the Operon plugin.',
+		OPERON_MANIFEST_INVALID: 'The selected Operon plugin manifest is invalid or unreadable.',
+		OPERON_CONFIG_DIRECTORY_AMBIGUOUS: 'Multiple Obsidian config folders contain an Operon manifest. Choose one with --config-dir <name>.',
+		OPERON_CONFIG_DIRECTORY_SCAN_LIMIT: 'Too many Obsidian config folders to scan. Specify the folder with --config-dir <name>.',
+		INVALID_CONFIG_DIR: 'Use one dot-prefixed Obsidian config folder name of at most 128 characters.',
+		DOCTOR_CONFIG_DIR_REQUIRES_VAULT: 'Use doctor --vault <path> --config-dir <name> for a one-time check.',
 		SCHEMA_NOT_FOUND: 'The requested Operon CLI schema is not installed.',
 		SCHEMA_ID_REQUIRED: 'Specify exactly one Operon CLI schema ID.',
 		PROFILE_NAME_REQUIRED: 'Specify exactly one Operon vault profile alias.',

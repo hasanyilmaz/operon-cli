@@ -6,7 +6,6 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import {
-	dirname,
 	join,
 	posix,
 	resolve,
@@ -19,6 +18,7 @@ import {
 	assertCanonicalVaultFenceV1,
 	canonicalVaultIdentityV1,
 	createCanonicalVaultFenceV1,
+	readInputFileSafelyV1,
 } from './protocol';
 import {
 	assertSecureFileV1,
@@ -33,6 +33,7 @@ export interface OperonCliVaultProfileV1 {
 	canonicalPath: string;
 	vaultSha256: string;
 	verifiedAt: string;
+	configDir?: string;
 }
 
 export interface OperonCliConfigV1 {
@@ -45,6 +46,12 @@ export interface ResolvedVaultV1 {
 	profile?: string;
 	canonicalPath: string;
 	vaultSha256: string;
+	configDir?: string;
+}
+
+interface OperonInstallationV1 {
+	configDir: string;
+	manifest: { id: 'operon'; version: string; minAppVersion: string };
 }
 
 interface SecureFileFingerprintV1 {
@@ -107,19 +114,28 @@ export function upsertVaultProfileV1(
 	input: {
 		name: string;
 		vaultPath: string;
+		configDir?: string;
 		makeDefault?: boolean;
 		now?: string;
 		platform?: NodeJS.Platform;
 	},
-): OperonCliConfigV1 {
+) {
 	if (!PROFILE_NAME_PATTERN_V1.test(input.name)) throw new Error('INVALID_PROFILE_NAME');
 	const vault = resolveExistingVaultIdentity(input.vaultPath);
-	validateOperonManifestV1(vault.canonicalPath);
-	const profile: OperonCliVaultProfileV1 = {
+	const saved = config.profiles.find(candidate => (
+		candidate.name === input.name
+		&& samePlatformPathV1(candidate.canonicalPath, vault.canonicalPath, input.platform)
+	));
+	const { configDir, manifest } = resolveOperonInstallationV1(
+		vault.canonicalPath,
+		input.configDir ?? saved?.configDir,
+	);
+	const profile = {
 		name: input.name,
 		canonicalPath: vault.canonicalPath,
 		vaultSha256: vault.sha256,
 		verifiedAt: input.now ?? new Date().toISOString(),
+		configDir,
 	};
 	const transportNameCollision = config.profiles.some(candidate => (
 		candidate.name !== profile.name
@@ -133,13 +149,14 @@ export function upsertVaultProfileV1(
 		.concat(profile)
 		.sort((left, right) => left.name.localeCompare(right.name));
 	const makeDefault = input.makeDefault === true || profiles.length === 1;
-	return decodeConfig({
+	const updated = decodeConfig({
 		version: 1,
 		...(makeDefault
 			? { defaultProfile: profile.name }
 			: config.defaultProfile ? { defaultProfile: config.defaultProfile } : {}),
 		profiles,
 	});
+	return { config: updated, profile, manifest };
 }
 
 export function removeVaultProfileV1(
@@ -267,47 +284,69 @@ function resolveExistingVaultIdentity(vaultPath: string): ReturnType<typeof cano
 	}
 }
 
-export function validateOperonManifestV1(vaultPath: string): {
-	id: 'operon';
-	version: string;
-	minAppVersion: string;
-} {
+export function isConfigDirectoryNameV1(value: unknown): value is string {
+	return typeof value === 'string'
+		&& /^\.(?!\.$)[^/\\:\p{Cc}]{1,127}$/u.test(value)
+		// Windows can resolve a trailing dot or space to a different name.
+		&& (process.platform !== 'win32' || !/[. ]$/u.test(value));
+}
+
+export function listOperonConfigDirectoriesV1(vaultPath: string): string[] {
 	const configDirectories = readdirSync(vaultPath, { withFileTypes: true })
-		.filter(entry => entry.isDirectory() && entry.name.startsWith('.') && entry.name.length <= 128)
-		.sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+		.filter(entry => entry.isDirectory() && isConfigDirectoryNameV1(entry.name))
+		.map(entry => entry.name);
 	if (configDirectories.length > 64) throw new Error('OPERON_CONFIG_DIRECTORY_SCAN_LIMIT');
-	const manifestPaths = configDirectories
-		.map(entry => join(vaultPath, entry.name, 'plugins', 'operon', 'manifest.json'))
-		.filter(path => {
-			try {
-				const configPath = dirname(dirname(dirname(path)));
-				const pluginsPath = dirname(dirname(path));
-				const operonPath = dirname(path);
-				for (const directory of [configPath, pluginsPath, operonPath]) {
-					const stat = lstatSync(directory);
-					if (!stat.isDirectory() || stat.isSymbolicLink()) return false;
-				}
-				assertRegularFile(path);
-				return true;
-			} catch {
-				return false;
-			}
-		});
-	if (manifestPaths.length !== 1) {
-		throw new Error(manifestPaths.length === 0
-			? 'OPERON_PLUGIN_NOT_FOUND'
-			: 'OPERON_CONFIG_DIRECTORY_AMBIGUOUS');
+	return configDirectories.filter(name => safeOperonManifestPathV1(vaultPath, name) !== undefined).sort();
+}
+
+export function safeOperonManifestPathV1(vaultPath: string, configDir: string): string | undefined {
+	if (!isConfigDirectoryNameV1(configDir)) return undefined;
+	const configPath = join(vaultPath, configDir);
+	const pluginsPath = join(configPath, 'plugins');
+	const operonPath = join(pluginsPath, 'operon');
+	const manifestPath = join(operonPath, 'manifest.json');
+	try {
+		for (const directory of [configPath, pluginsPath, operonPath]) {
+			const stat = lstatSync(directory);
+			if (!stat.isDirectory() || stat.isSymbolicLink()) return undefined;
+		}
+		const stat = lstatSync(manifestPath);
+		return stat.isFile() && !stat.isSymbolicLink() ? manifestPath : undefined;
+	} catch {
+		return undefined;
 	}
-	const manifestPath = manifestPaths[0];
-	const parsed = JSON.parse(readFileSync(manifestPath, 'utf8')) as unknown;
-	if (!isPlainRecord(parsed) || parsed.id !== 'operon') throw new Error('OPERON_PLUGIN_NOT_FOUND');
-	if (typeof parsed.version !== 'string' || typeof parsed.minAppVersion !== 'string') {
+}
+
+export function resolveOperonInstallationV1(vaultPath: string, configDir?: string): OperonInstallationV1 {
+	if (configDir === undefined) {
+		const configDirectories = listOperonConfigDirectoriesV1(vaultPath);
+		if (configDirectories.length === 0) throw new Error('OPERON_PLUGIN_NOT_FOUND');
+		if (configDirectories.length > 1) {
+			throw Object.assign(new Error('OPERON_CONFIG_DIRECTORY_AMBIGUOUS'), { configDirectories });
+		}
+		configDir = configDirectories[0];
+	}
+	if (!isConfigDirectoryNameV1(configDir)) throw new Error('INVALID_CONFIG_DIR');
+	const manifestPath = safeOperonManifestPathV1(vaultPath, configDir);
+	if (manifestPath === undefined) {
+		throw Object.assign(new Error('OPERON_CONFIG_DIRECTORY_UNAVAILABLE'), {
+			publicReason: `No safe Operon manifest was found in "${configDir}". Check the Obsidian config folder or select another with --config-dir.`,
+		});
+	}
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(readInputFileSafelyV1(manifestPath).toString('utf8')) as unknown;
+	} catch {
 		throw new Error('OPERON_MANIFEST_INVALID');
 	}
+	if (!isPlainRecord(parsed) || parsed.id !== 'operon') throw new Error('OPERON_PLUGIN_NOT_FOUND');
+	if (
+		typeof parsed.version !== 'string' || !parsed.version
+		|| typeof parsed.minAppVersion !== 'string' || !parsed.minAppVersion
+	) throw new Error('OPERON_MANIFEST_INVALID');
 	return {
-		id: 'operon',
-		version: parsed.version,
-		minAppVersion: parsed.minAppVersion,
+		configDir,
+		manifest: { id: 'operon', version: parsed.version, minAppVersion: parsed.minAppVersion },
 	};
 }
 
@@ -330,7 +369,12 @@ function resolvedProfile(config: OperonCliConfigV1, name: string): ResolvedVault
 	}
 	const identity = canonicalVaultIdentityV1(canonicalPath);
 	if (identity.sha256 !== profile.vaultSha256) throw new Error('VAULT_PROFILE_MOVED');
-	return { profile: profile.name, canonicalPath, vaultSha256: identity.sha256 };
+	return {
+		profile: profile.name,
+		canonicalPath,
+		vaultSha256: identity.sha256,
+		...(profile.configDir !== undefined ? { configDir: profile.configDir } : {}),
+	};
 }
 
 function decodeConfig(value: unknown): OperonCliConfigV1 {
@@ -341,7 +385,7 @@ function decodeConfig(value: unknown): OperonCliConfigV1 {
 	const names = new Set<string>();
 	const profiles = value.profiles.map(item => {
 		if (!isPlainRecord(item)) throw new Error('CONFIG_MALFORMED');
-		if (Object.keys(item).some(key => !['name', 'canonicalPath', 'vaultSha256', 'verifiedAt'].includes(key))) {
+		if (Object.keys(item).some(key => !['name', 'canonicalPath', 'vaultSha256', 'verifiedAt', 'configDir'].includes(key))) {
 			throw new Error('CONFIG_UNKNOWN_FIELD');
 		}
 		if (
@@ -350,6 +394,7 @@ function decodeConfig(value: unknown): OperonCliConfigV1 {
 			|| typeof item.canonicalPath !== 'string'
 			|| !/^[a-f0-9]{64}$/u.test(String(item.vaultSha256))
 			|| typeof item.verifiedAt !== 'string'
+			|| (item.configDir !== undefined && !isConfigDirectoryNameV1(item.configDir))
 		) throw new Error('CONFIG_MALFORMED');
 		if (names.has(item.name)) throw new Error('CONFIG_DUPLICATE_PROFILE');
 		names.add(item.name);
@@ -358,6 +403,7 @@ function decodeConfig(value: unknown): OperonCliConfigV1 {
 			canonicalPath: item.canonicalPath,
 			vaultSha256: String(item.vaultSha256),
 			verifiedAt: item.verifiedAt,
+			...(typeof item.configDir === 'string' ? { configDir: item.configDir } : {}),
 		};
 	});
 	assertUniqueTransportVaultNames(profiles);
@@ -449,11 +495,6 @@ function sameSecureFileFingerprint(
 		&& left.ctimeMs === right.ctimeMs
 		&& left.uid === right.uid
 		&& left.mode === right.mode;
-}
-
-function assertRegularFile(path: string): void {
-	const stat = lstatSync(path);
-	if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('OPERON_MANIFEST_INVALID');
 }
 
 function safeRealpath(path: string): string | undefined {

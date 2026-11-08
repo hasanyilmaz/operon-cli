@@ -3,6 +3,10 @@
   "$id": "urn:operon:schema:cli:v1:operon-cli-local.schema.json",
   "title": "Operon CLI local V1",
   "$defs": {
+    "configDir": {
+      "type": "string",
+      "pattern": "^\\.(?!\\.$)[^/\\\\:\\p{Cc}]{1,127}$"
+    },
     "profile": {
       "type": "object",
       "additionalProperties": false,
@@ -28,6 +32,9 @@
         "verifiedAt": {
           "type": "string",
           "format": "date-time"
+        },
+        "configDir": {
+          "$ref": "#/$defs/configDir"
         }
       }
     },
@@ -610,16 +617,19 @@
           "additionalProperties": true,
           "required": [
             "canonicalPath",
-            "sha256"
+            "vaultSha256"
           ],
           "properties": {
             "canonicalPath": {
               "type": "string",
               "minLength": 1
             },
-            "sha256": {
+            "vaultSha256": {
               "type": "string",
               "pattern": "^[a-f0-9]{64}$"
+            },
+            "configDir": {
+              "$ref": "#/$defs/configDir"
             }
           }
         },

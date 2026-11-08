@@ -89,11 +89,13 @@ export function renderLocalHumanV1(command: string, result: unknown, fallback: s
 		for (const profile of profiles.slice(0, ROW_LIMIT)) {
 			const name = scalar(profile.name, 'unnamed');
 			const marker = name === value.defaultProfile ? ' (default)' : '';
-			lines.push(`- ${safe(name, LABEL_LIMIT)}${marker} | ${safe(profile.canonicalPath, PATH_LIMIT)} | verified ${safe(profile.verifiedAt, LABEL_LIMIT)}`);
+			const configDir = typeof profile.configDir === 'string' ? ` | config folder ${safe(profile.configDir, 128)}` : '';
+			lines.push(`- ${safe(name, LABEL_LIMIT)}${marker} | ${safe(profile.canonicalPath, PATH_LIMIT)}${configDir} | verified ${safe(profile.verifiedAt, LABEL_LIMIT)}`);
 		}
 		appendOmitted(lines, profiles.length);
 		return finalizeLines(lines);
 	}
+	if (command === 'setup') return finalizeLines(fallback.split('\n'));
 	if (command === 'doctor') return finalizeLines(renderDoctor(value));
 	if (command === 'plan.show') {
 		const planRef = scalar(value.planRef);
@@ -487,7 +489,8 @@ function renderDoctor(result: Record<string, unknown>): string[] {
 		`Platform: ${safe(platform.name, LABEL_LIMIT)} (${safe(platform.liveTransport, LABEL_LIMIT)})`,
 		`Profile: ${safe(vault.profile, LABEL_LIMIT, 'explicit vault')}`,
 		`Vault: ${safe(vault.canonicalPath, PATH_LIMIT)}`,
-		`Plugin: ${safe(plugin.id, LABEL_LIMIT)} ${safe(plugin.version, LABEL_LIMIT)}`,
+		...(typeof vault.configDir === 'string' ? [`Obsidian config folder: ${safe(vault.configDir, 128)}`] : []),
+		`Local plugin: ${safe(plugin.id, LABEL_LIMIT)} ${safe(plugin.version, LABEL_LIMIT)}`,
 		`Runtime: ${Object.keys(live).length > 0 ? 'checked' : 'not requested'}`,
 	];
 	if (platform.liveTransport === 'acceptance-required') {
