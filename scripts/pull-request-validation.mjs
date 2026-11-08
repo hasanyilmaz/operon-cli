@@ -13,7 +13,7 @@ import {
 import { OPERON_CLI_RELEASE_V1 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PUBLIC_WORKFLOW_SHA256 = '4e5d707342751776bd70b613dbba737d8d71f875d47e5934288e1863fca9df2e';
+const PUBLIC_WORKFLOW_SHA256 = '3b81cf256e06048f0a7157eed49ba0f22bda64f8f237cd708e4b2d43c7f79a71';
 
 const [command, ...args] = process.argv.slice(2);
 switch (command) {
@@ -46,7 +46,7 @@ async function workflowCheck(
 		'max-parallel: 3',
 		'node-version: 24.18.0',
 		'ubuntu-24.04',
-		'macos-14',
+		'macos-15',
 		'windows-2022',
 		'pr-validation-gate:',
 		'name: PR validation gate',
