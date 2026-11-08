@@ -516,7 +516,7 @@ async function testFileTaskTitleWriteCommands(): Promise<void> {
 		assert.equal(validateIntent({ ...baseIntent, spec: edit }), false);
 		assert.equal(validateIntent({ ...baseIntent, spec: createIntent, target: exactTarget }), false);
 		for (const ref of [exactRef, editRef]) {
-			const show = await run(['plan', 'show', ref, '--json']);
+			const show = await runProductionPublicCommandLineV1(['plan', 'show', ref, '--json'], { configRoot: root.config });
 			assert.equal(show.exitCode, 0, show.human);
 			assert.ok(show.envelope.ok);
 			assert.equal(validatePlan(show.envelope.result), true, JSON.stringify(validatePlan.errors));
