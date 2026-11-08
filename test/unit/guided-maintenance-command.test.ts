@@ -5,6 +5,7 @@ import {
 	mkdir,
 	mkdtemp,
 	readFile,
+	readdir,
 	realpath,
 	rm,
 	unlink,
@@ -12,6 +13,8 @@ import {
 } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { Readable, Writable } from 'node:stream';
+import Ajv2020 from 'ajv/dist/2020.js';
 
 import type {
 	CatalogPoliciesV1,
@@ -43,6 +46,8 @@ import {
 	canonicalJsonV1,
 	computeReceiptTargetDigestV1,
 	computeSealedMutationPlanHashV1,
+	decodeOperonCatalogV1,
+	decodeTaskContextV1,
 	sha256HexV1,
 	toJsonValueV1,
 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
@@ -54,8 +59,11 @@ import {
 	type PublicCommandPortsV1,
 	runPublicCommandLineV1 as runProductionPublicCommandLineV1,
 } from '../../src/command-line';
+import { writePublicCommandOutcomeV1 } from '../../src/command-output';
+import { renderHumanV1 } from '../../src/human-renderer';
 import { readMutationPlanV1 } from '../../src/plan-store';
 import { requestPathForTokenV1 } from '../../src/protocol';
+import { runJsonlSessionV1 } from '../../src/session-jsonl';
 import type { InteractiveTerminalPortV1 } from '../../src/terminal-port';
 import {
 	adoptWorkflowPreviewResultV1,
@@ -157,6 +165,8 @@ function createHarnessWindowsBrokerV1(): WindowsBrokerClientPortV1 {
 }
 
 async function run(): Promise<void> {
+	await testFileTaskTitleReadContracts();
+	await testFileTaskTitleReadCommands();
 	await testGuidedAdmissionMatrix();
 	await testLegacyTypedDispatch();
 	await testCommandPreviewDeclineAndApply();
@@ -169,6 +179,141 @@ async function run(): Promise<void> {
 	await testDirectTimerSessionFlows();
 	await testDirectPinnedOrchestration();
 	console.log('Operon CLI guided maintenance command tests passed.');
+}
+
+async function testFileTaskTitleReadContracts(): Promise<void> {
+	const ajv = new Ajv2020({ strict: false, logger: false });
+	const schemaRoot = path.join(process.cwd(), 'schemas', 'v1');
+	for (const fileName of await readdir(schemaRoot)) {
+		if (!fileName.endsWith('.schema.json')) continue;
+		ajv.addSchema(JSON.parse(await readFile(path.join(schemaRoot, fileName), 'utf8')));
+	}
+	const validateTask = ajv.getSchema('urn:operon:schema:runtime:v1:context.schema.json#/$defs/taskContext');
+	const validateCatalog = ajv.getSchema('urn:operon:schema:runtime:v1:catalog.schema.json#/$defs/result');
+	assert.ok(validateTask && validateCatalog);
+
+	const legacy = fileTaskForTitleRead();
+	const maxByteTitle = '🧭'.repeat(2_048);
+	assert.equal(Buffer.byteLength(maxByteTitle, 'utf8'), 8_192);
+	for (const value of [legacy, { ...legacy, displayTitle: maxByteTitle }]) {
+		const decoded = decodeTaskContextV1(value);
+		assert.ok(decoded.ok, JSON.stringify(!decoded.ok && decoded.issues));
+		assert.deepEqual(JSON.parse(JSON.stringify(decoded.value)), value);
+		assert.equal(validateTask(value), true, JSON.stringify(validateTask.errors));
+	}
+	for (const displayTitle of [123, 'a'.repeat(8_193)]) {
+		const invalid = { ...legacy, displayTitle };
+		assert.equal(decodeTaskContextV1(invalid).ok, false);
+		assert.equal(validateTask(invalid), false);
+	}
+	const oversized = decodeTaskContextV1({ ...legacy, displayTitle: maxByteTitle + 'x' });
+	assert.ok(!oversized.ok && oversized.issues.some(issue => issue.path === '/displayTitle'));
+
+	const legacyCatalog = catalogResult('catalog-read-001');
+	assert.ok(legacyCatalog.ok);
+	assert.equal(decodeOperonCatalogV1(legacyCatalog).ok, true);
+	assert.equal(validateCatalog(legacyCatalog), true, JSON.stringify(validateCatalog.errors));
+	assert.doesNotMatch(renderHumanV1(successEnvelope({ command: 'catalog' } as CliInvocationV1, legacyCatalog)), /File Task filename format/u);
+	for (const preset of ['same', 'kebab', 'snake'] as const) {
+		const value = catalogResult('catalog-read-001', {
+			...legacyCatalog.policies,
+			fileTaskFilenameRule: { preset },
+		});
+		const decoded = decodeOperonCatalogV1(value);
+		assert.ok(decoded.ok && decoded.value.ok);
+		assert.equal(decoded.value.policies.fileTaskFilenameRule?.preset, preset);
+		assert.equal(validateCatalog(value), true, JSON.stringify(validateCatalog.errors));
+		assert.ok(renderHumanV1(successEnvelope({ command: 'catalog' } as CliInvocationV1, value))
+			.includes(`File Task filename format: ${preset}\n`));
+	}
+	const invalidCatalog = {
+		...legacyCatalog,
+		policies: { ...legacyCatalog.policies, fileTaskFilenameRule: { preset: 'pascal' } },
+	};
+	const rejected = decodeOperonCatalogV1(invalidCatalog);
+	assert.ok(!rejected.ok && rejected.issues.some(issue => issue.path === '/policies/fileTaskFilenameRule/preset'));
+	assert.equal(validateCatalog(invalidCatalog), false);
+}
+
+async function testFileTaskTitleReadCommands(): Promise<void> {
+	const root = await createHarnessRoot('file-task-title');
+	try {
+		const legacy = fileTaskForTitleRead();
+		const current = { ...legacy, displayTitle: 'Quarterly review' };
+		const invocations: CliInvocationV1[] = [];
+		let providerTask = legacy;
+		const ports = {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: fixtureRunner(root.requests, invocations, invocation => (
+				compactRelationshipResponse(invocation, false, providerTask, true)
+			)),
+		};
+		const argv = ['task', 'get', '--id', legacy.identity.operonId, '--vault', root.vault, '--json'];
+		for (const expected of [legacy, current]) {
+			providerTask = expected;
+			const outcome = await runPublicCommandLineV1(argv, ports);
+			assert.equal(outcome.exitCode, 0, outcome.human);
+			let json = '';
+			writePublicCommandOutcomeV1(outcome, {
+				stdout: { write: value => { json += value; } },
+				stderr: { write: () => assert.fail('JSON output must use stdout.') },
+			});
+			let jsonl = '';
+			assert.equal(await runJsonlSessionV1({
+				input: Readable.from([JSON.stringify({ id: 'file-task', argv }) + '\n']),
+				output: new Writable({
+					write(chunk, _encoding, callback) {
+						jsonl += chunk.toString('utf8');
+						callback();
+					},
+				}),
+				commandPorts: ports,
+				runCommand: (args, options) => runPublicCommandLineV1(args, {
+					...options,
+					_persistentReadTransport: undefined,
+				}),
+			}), 0);
+			const frame = JSON.parse(jsonl);
+			assert.equal(frame.exitCode, 0, jsonl);
+			for (const envelope of [JSON.parse(json), frame.result]) {
+				const actual = envelope.result.task as TaskContextV1;
+				assert.equal(actual.description, expected.description);
+				assert.equal(actual.displayTitle, expected.displayTitle);
+				assert.equal('displayTitle' in actual, 'displayTitle' in expected);
+				assert.equal(actual.identity.operonId, expected.identity.operonId);
+				assert.equal(actual.locator.filePath, expected.locator.filePath);
+			}
+		}
+
+		const preview = (description: string) => runPublicCommandLineV1([
+			'task', 'update', '--description', description, 'blockedBy::dep1234',
+			'--preview-only', '--vault', root.vault, '--json',
+		], ports);
+		invocations.length = 0;
+		const matched = await preview(current.description);
+		assert.equal(matched.exitCode, 0, matched.human);
+		assert.deepEqual(invocations.map(item => item.command), ['tasks.query', 'task.get', 'mutation.preview']);
+		assert.deepEqual(invocations[1]?.request && 'selector' in invocations[1].request
+			? invocations[1].request.selector
+			: undefined, { kind: 'operon-id', operonId: current.identity.operonId });
+
+		invocations.length = 0;
+		const unmatched = await preview(current.displayTitle);
+		assert.equal(unmatched.exitCode, 4, unmatched.human);
+		assert.match(unmatched.human, /No task has that exact description/u);
+		assert.deepEqual(invocations.map(item => item.command), ['tasks.query']);
+	} finally {
+		await root.cleanup();
+	}
+}
+
+function fileTaskForTitleRead(): TaskContextV1 {
+	return {
+		...compactUpdateTask('abc1234', 'quarterly-review'),
+		representation: 'file',
+		locator: { representation: 'file', filePath: 'Tasks/quarterly-review.md' },
+	};
 }
 
 async function testTaskWorkflowCommandRouting(): Promise<void> {
@@ -4136,7 +4281,7 @@ function taskGetResult(requestId: string): TaskGetResultV1 {
 	};
 }
 
-function catalogResult(requestId: string): OperonCatalogV1 {
+function catalogResult(requestId: string, policies = catalogPolicies()): OperonCatalogV1 {
 	const result: OperonCatalogV1 = {
 		contractVersion: 1,
 		requestId,
@@ -4190,7 +4335,7 @@ function catalogResult(requestId: string): OperonCatalogV1 {
 			mutationOwner: 'tasks.update',
 			requiresStableTaxonomyId: false,
 		}],
-		policies: catalogPolicies(),
+		policies,
 	};
 	if (!result.ok) throw new Error('Synthetic catalog fixture must be successful.');
 	result.catalogRevision = sha256HexV1(canonicalJsonV1(toJsonValueV1({

@@ -1,5 +1,5 @@
 import type { RuntimeCliResultEnvelopeV1 } from './runtime-contract-compatibility';
-import { sanitizeTerminalTextV1 } from './terminal-text';
+import { fileTaskTitleForDisplayV1, sanitizeTerminalTextV1 } from './terminal-text';
 
 const ROW_LIMIT = 50;
 const OUTPUT_LINE_LIMIT = 200;
@@ -158,7 +158,12 @@ function renderCatalog(result: Record<string, unknown>): string[] {
 	const pipelines = records(taxonomy.pipelines);
 	const priorities = records(taxonomy.priorities);
 	const fields = records(result.fields);
-	const lines = [`Operon catalog: ${pipelines.length} pipelines, ${priorities.length} priorities, ${fields.length} fields`, '', 'Pipelines:'];
+	const lines = [`Operon catalog: ${pipelines.length} pipelines, ${priorities.length} priorities, ${fields.length} fields`];
+	const preset = record(record(result.policies).fileTaskFilenameRule).preset;
+	if (preset === 'same' || preset === 'kebab' || preset === 'snake') {
+		lines.push(`File Task filename format: ${preset}`);
+	}
+	lines.push('', 'Pipelines:');
 	for (const pipeline of pipelines.slice(0, ROW_LIMIT)) {
 		lines.push(`- ${safe(pipeline.name, LABEL_LIMIT)} [${safe(pipeline.id, LABEL_LIMIT)}] — ${safe(pipeline.description, DESCRIPTION_LIMIT, 'No description')}`);
 		const statuses = records(pipeline.statuses);
@@ -268,7 +273,7 @@ function renderTaskFinder(result: Record<string, unknown>): string[] {
 		lines.push([
 			safe(row.kind, LABEL_LIMIT),
 			safe(identity.operonId, LABEL_LIMIT),
-			safe(task.description, DESCRIPTION_LIMIT),
+			safe(fileTaskTitleForDisplayV1(task) ?? task.description, DESCRIPTION_LIMIT),
 			safe(status.label ?? task.checkbox, LABEL_LIMIT),
 			safe(priority.label, LABEL_LIMIT, '-'),
 			safe(row.score, LABEL_LIMIT),
@@ -508,10 +513,14 @@ function renderTaskDetails(task: Record<string, unknown>): string[] {
 	const relationships = record(task.relationships);
 	const recurrence = record(task.recurrence);
 	const tracker = record(task.tracker);
+	const displayTitle = fileTaskTitleForDisplayV1(task);
 	const lines = [
 		`ID: ${safe(identity.operonId, LABEL_LIMIT)}`,
 		`Mutation eligibility: ${identity.mutationAllowed === false ? `blocked (${safe(identity.validity, LABEL_LIMIT)})` : 'eligible'}`,
-		`Task: ${safe(task.description, DESCRIPTION_LIMIT)}`,
+		`Task: ${safe(displayTitle ?? task.description, DESCRIPTION_LIMIT)}`,
+		...(displayTitle !== undefined && task.displayTitle !== task.description
+			? [`Filename: ${safe(task.description, DESCRIPTION_LIMIT)}`]
+			: []),
 		`State: ${safe(task.checkbox, LABEL_LIMIT)}`,
 		`Workflow: ${safe(pipeline.label, LABEL_LIMIT, '-')} / ${safe(status.label, LABEL_LIMIT, '-')}`,
 		`Priority: ${safe(priority.label, LABEL_LIMIT, '-')}`,
@@ -546,7 +555,7 @@ function appendTaskRows(lines: string[], tasks: Record<string, unknown>[]): void
 		const dates = record(task.dates);
 		lines.push([
 			`${safe(identity.operonId, LABEL_LIMIT)}${identity.mutationAllowed === false ? ' !' : ''}`,
-			safe(task.description, DESCRIPTION_LIMIT),
+			safe(fileTaskTitleForDisplayV1(task) ?? task.description, DESCRIPTION_LIMIT),
 			safe(status.label ?? task.checkbox, LABEL_LIMIT, '-'),
 			safe(priority.label, LABEL_LIMIT, '-'),
 			safe(dates.due, LABEL_LIMIT, '-'),

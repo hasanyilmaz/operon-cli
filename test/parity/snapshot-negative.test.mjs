@@ -23,6 +23,13 @@ for (const scenario of [
 		},
 	},
 	{
+		name: 'snapshot routed-create reference byte drift',
+		mutate: async root => {
+			const target = path.join(root, 'vendor', 'operon-plugin-v1', 'reference', 'src', 'agent-runtime', 'extensions', 'task-creation-v1', 'schema.ts.txt');
+			await writeFile(target, `${await readFile(target, 'utf8')}\n`, 'utf8');
+		},
+	},
+	{
 		name: 'snapshot missing file',
 		mutate: async root => {
 			await unlink(path.join(root, 'vendor', 'operon-plugin-v1', 'src', 'core', 'local-time.ts'));

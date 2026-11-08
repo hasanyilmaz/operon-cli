@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { lstat, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RUNTIME_SCHEMA_AGGREGATE_V1, readRuntimeExtensionManifestsV1 } from './runtime-snapshot-schemas.mjs';
 
 const mode = process.argv[2];
 if (mode !== '--write' && mode !== '--check') {
@@ -11,6 +12,8 @@ if (mode !== '--write' && mode !== '--check') {
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const snapshotRoot = path.join(projectRoot, 'vendor', 'operon-plugin-v1');
 const manifestPath = path.join(snapshotRoot, 'snapshot-manifest-v1.json');
+const schemaRoot = path.join(snapshotRoot, 'contracts', 'agent-runtime');
+const extensionManifests = await readRuntimeExtensionManifestsV1(schemaRoot);
 const files = [];
 await walk(snapshotRoot, '');
 files.sort((left, right) => left.path.localeCompare(right.path));
@@ -20,6 +23,9 @@ const groups = {
 	runtimeSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/v1/'))),
 	taskWorkflowExtensionSource: aggregate(files.filter(item => item.path.startsWith('src/agent-runtime/extensions/task-workflows-v1/'))),
 	taskWorkflowExtensionSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/extensions/task-workflows-v1/'))),
+	fileTaskTitlesExtensionSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/extensions/file-task-titles-v1/'))),
+	taskCreationExtensionSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/extensions/task-creation-v1/'))),
+	extensionReferences: aggregate(files.filter(item => item.path.startsWith('reference/'))),
 	temporalCodecs: aggregate(files.filter(item => item.path.startsWith('src/core/'))),
 	vaultIdentity: aggregate(files.filter(item => item.path.endsWith('/vault-path-identity.ts'))),
 };
@@ -30,26 +36,27 @@ const projection = {
 	kind: 'operon-cli-plugin-snapshot',
 	origin: {
 		repository: 'https://github.com/hasanyilmaz/operon',
-		pluginCheckpointCommit: '3f00fa69c036db4818dace7ea12366ec5d8ad73a',
-		pluginTreeOid: '3937f3a95947c476df6fea5f58005dcdf1033e70',
-		contractSourceTreeOid: '715a63d03d36f9a04ba9d2d292e2b4037edbc73d',
+		pluginCheckpointCommit: 'a04545858ae975123a4c015efb06827b3a6a1f47',
+		pluginTreeOid: '49c163f03d66ee7e27e25feb8b32fc6f3b0fb4db',
+		contractSourceTreeOid: '6e43e5ef356c2ab1a539d7bd747621d5eb3b2ee0',
 		publicTypeSourceTreeOid: '7f86bf8212e6a58fe9dd44abd9818cada542907f',
-		runtimeSchemaTreeOid: '421474db07a9603e547e5bcd08fdaa2f1d68b068',
-		taskWorkflowExtensionSourceTreeOid: '1f03fa7b68819b77e0449a10d5d8b6bdde2c072f',
+		runtimeSchemaTreeOid: 'fe6956c0bf03c6cc72026c843011c4340dbf5094',
+		taskWorkflowExtensionSourceTreeOid: '091ecece390b302311d2ba9db90f5d84219a6839',
 		taskWorkflowExtensionSchemaTreeOid: 'b865ba3ce4d9b6646475d998dfa2d472a214b9e8',
+		fileTaskTitlesExtensionSourceTreeOid: '8fe9aa53fe269f87d79324fe284ff12d614f29c7',
+		fileTaskTitlesExtensionSchemaTreeOid: '9bef61e3bf8e9a3a3d358c390b88803a74f9ab23',
+		taskCreationExtensionSourceTreeOid: '274d31789c221d1584beb10c18a029436f67b03f',
+		taskCreationExtensionSchemaTreeOid: 'e18d09c76df201d8c7a9576a1483b2a682195728',
 	},
 	runtimeV1: {
 		contractVersion: 1,
 		contractDigest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
-		schemaAggregateSha256: '7f0123fc1da01ca5d10d02c8a95def5aae2bac9086ad19787dae547d94b59d8f',
+		schemaAggregateSha256: RUNTIME_SCHEMA_AGGREGATE_V1,
 	},
 	extensions: {
-		taskWorkflowsV1: {
-			extensionId: 'task-workflows-v1',
-			contractVersion: 1,
-			baseSchemaManifestAggregateSha256: '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
-			aggregateSha256: '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc',
-		},
+		taskWorkflowsV1: extensionIdentity('task-workflows-v1'),
+		fileTaskTitlesV1: extensionIdentity('file-task-titles-v1'),
+		taskCreationV1: extensionIdentity('task-creation-v1'),
 	},
 	toolchain: {
 		node: '24.18.0',
@@ -70,7 +77,7 @@ const document = {
 	...projection,
 	snapshotAggregateSha256: sha256(Buffer.from(JSON.stringify(projection), 'utf8')),
 };
-assert.equal(files.length, 46, 'Snapshot inventory must contain exactly 46 files.');
+assert.equal(files.length, 65, 'Snapshot inventory must contain exactly 65 files.');
 const runtimeSchemaManifest = JSON.parse(await readFile(path.join(
 	snapshotRoot,
 	'contracts',
@@ -79,26 +86,12 @@ const runtimeSchemaManifest = JSON.parse(await readFile(path.join(
 	'schema-manifest.json',
 ), 'utf8'));
 assert.equal(runtimeSchemaManifest.aggregateSha256, document.runtimeV1.schemaAggregateSha256);
-const taskWorkflowExtensionManifest = JSON.parse(await readFile(path.join(
-	snapshotRoot,
-	'contracts',
-	'agent-runtime',
-	'extensions',
-	'task-workflows-v1',
-	'extension-manifest.json',
-), 'utf8'));
-assert.equal(
-	taskWorkflowExtensionManifest.baseContractDigest,
-	document.runtimeV1.contractDigest,
-);
-assert.equal(
-	taskWorkflowExtensionManifest.baseSchemaManifestAggregateSha256,
-	document.extensions.taskWorkflowsV1.baseSchemaManifestAggregateSha256,
-);
-assert.equal(
-	taskWorkflowExtensionManifest.aggregateSha256,
-	document.extensions.taskWorkflowsV1.aggregateSha256,
-);
+for (const manifest of extensionManifests) {
+	assert.equal(manifest.baseContractDigest, document.runtimeV1.contractDigest);
+	if (manifest.extensionId !== 'task-workflows-v1') {
+		assert.equal(manifest.baseSchemaManifestAggregateSha256, document.runtimeV1.schemaAggregateSha256);
+	}
+}
 const serialized = `${JSON.stringify(document, null, 2)}\n`;
 if (mode === '--write') {
 	await writeFile(manifestPath, serialized, 'utf8');
@@ -111,6 +104,13 @@ console.log(JSON.stringify({
 	fileCount: files.length,
 	snapshotAggregateSha256: document.snapshotAggregateSha256,
 }));
+
+function extensionIdentity(id) {
+	const manifest = extensionManifests.find(item => item.extensionId === id);
+	assert.ok(manifest, `Missing extension manifest: ${id}`);
+	const { extensionId, contractVersion, baseSchemaManifestAggregateSha256, aggregateSha256 } = manifest;
+	return { extensionId, contractVersion, baseSchemaManifestAggregateSha256, aggregateSha256 };
+}
 
 async function walk(directory, relativeDirectory) {
 	const entries = await readdir(directory, { withFileTypes: true });

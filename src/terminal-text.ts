@@ -26,6 +26,21 @@ export function sanitizeTerminalTextV1(value: string): string {
 	return result;
 }
 
+const FILE_TASK_TITLE_MAX_CODE_POINTS_V1 = 240;
+
+export function fileTaskTitleForDisplayV1(task: {
+	representation?: unknown;
+	displayTitle?: unknown;
+}): string | undefined {
+	if (task.representation !== 'file' || typeof task.displayTitle !== 'string') return undefined;
+	const title = sanitizeTerminalTextV1(task.displayTitle).replace(/\s+/gu, ' ').trim();
+	if (!title) return undefined;
+	const characters = [...title];
+	return characters.length <= FILE_TASK_TITLE_MAX_CODE_POINTS_V1
+		? title
+		: `${characters.slice(0, FILE_TASK_TITLE_MAX_CODE_POINTS_V1 - 1).join('')}…`;
+}
+
 const PROCESS_DIAGNOSTIC_MAX_CODE_POINTS_V1 = 240;
 const REQUEST_TOKEN_ASSIGNMENT_V1 =
 	/(?<![A-Za-z0-9_-])requestToken=[A-Za-z0-9_-]{32}(?![A-Za-z0-9_-])/gu;

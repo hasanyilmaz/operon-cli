@@ -156,7 +156,7 @@ function isSchemaEntrypoint(value: unknown): value is {
 			|| (Object.keys(value).length === 6 && isPlainRecord(value.deprecation))
 		)
 		&& typeof value.schemaId === 'string'
-		&& /^[a-z0-9.-]+$/u.test(value.schemaId)
+		&& /^[A-Za-z0-9.-]+$/u.test(value.schemaId)
 		&& typeof value.ref === 'string'
 		&& value.ref.length > 0
 		&& typeof value.file === 'string'

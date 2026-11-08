@@ -54,6 +54,16 @@ export type AffectedResourceRevisionMapV1 = ResourceRevisionV1[];
 export declare const RESOURCE_KINDS_V1: readonly ["timer", "repeat-series", "active-tracker", "pinned", "project-serial", "task-source"];
 export type ResourceKindV1 = typeof RESOURCE_KINDS_V1[number];
 export declare const RESOURCE_QUEUE_ORDER_V1: Readonly<Record<ResourceKindV1, number>>;
+/** Canonical sealed-plan key order: UTF-16 code units, independent of host locale. */
+export declare function compareResourceKeysCanonicalV1(left: string, right: string): number;
+/** Shared ordering for every producer and consumer of sealed resource references. */
+export declare function compareResourceReferencesCanonicalV1(left: {
+    readonly resourceKind: ResourceKindV1;
+    readonly resourceKey: string;
+}, right: {
+    readonly resourceKind: ResourceKindV1;
+    readonly resourceKey: string;
+}): number;
 export type TaskSelectorV1 = {
     kind: 'operon-id';
     operonId: string;

@@ -12,7 +12,7 @@ import type {
 	TaskSelectorV1,
 	TaskSourceLocatorV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
-import { sanitizeTerminalTextV1 } from './terminal-text';
+import { fileTaskTitleForDisplayV1, sanitizeTerminalTextV1 } from './terminal-text';
 import type { InteractiveTerminalPortV1 } from './terminal-port';
 
 const FINDER_PAGE_SIZE = 10;
@@ -655,7 +655,7 @@ function renderPage(
 				+ ` · ${row.visibleTreeTaskCount} visible incl. root, ${row.treeTaskCount} descendants`
 			: '';
 		port.write(
-			`${index + 1}. ${display(task.description)}\n`
+			`${index + 1}. ${display(fileTaskTitleForDisplayV1(task) ?? task.description)}\n`
 			+ `   ${display(status)} · ${display(priority)}${due}${project}${mutation}\n`
 			+ `   ${display(task.identity.operonId)} · ${display(task.representation)} · ${formatLocator(task.locator)}\n`,
 		);
