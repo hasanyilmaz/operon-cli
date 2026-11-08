@@ -15,7 +15,7 @@ test('main candidate identity remains non-release when adopted by the release fr
 	assert.equal(OPERON_CLI_MAIN_CANDIDATE_V1.schemas, OPERON_CLI_RELEASE_V1.schemas);
 	assert.equal(OPERON_CLI_MAIN_CANDIDATE_V1.declarations, OPERON_CLI_RELEASE_V1.declarations);
 	assert.equal(OPERON_CLI_MAIN_CANDIDATE_V1.contractDigest, OPERON_CLI_RELEASE_V1.runtimeV1Digest);
-	assert.equal(OPERON_CLI_MAIN_CANDIDATE_V1.inventoryEntries, 48);
+	assert.equal(OPERON_CLI_MAIN_CANDIDATE_V1.inventoryEntries, 55);
 	assert.match(OPERON_CLI_MAIN_CANDIDATE_V1.pluginCandidateSha, /^[a-f0-9]{40}$/u);
 	assert.match(OPERON_CLI_MAIN_CANDIDATE_V1.contractDigest, /^[a-f0-9]{64}$/u);
 	assert.match(OPERON_CLI_MAIN_CANDIDATE_V1.tarball.sha256, /^[a-f0-9]{64}$/u);
