@@ -171,7 +171,7 @@ test('canonical comparison accepts four equal manifests and rejects drift', asyn
 			},
 			inventory: fixture.inventory,
 		};
-		for (const name of ['canonical-ubuntu-24.04', 'canonical-macos-14', 'canonical-windows-2022', 'canonical-windows-2025']) {
+		for (const name of ['canonical-ubuntu-24.04', 'canonical-macos-15', 'canonical-windows-2022', 'canonical-windows-2025']) {
 			const directory = path.join(input, name);
 			await mkdir(directory, { recursive: true });
 			await writeFile(path.join(directory, 'operon-cli-1.3.0.tgz'), fixture.tarball);
@@ -224,7 +224,7 @@ function assertCommandPassed(args, env = {}) {
 function evidenceFor(name, githubOverrides = {}) {
 	const producer = {
 		'canonical-ubuntu-24.04': { runnerId: 'ubuntu-24.04', os: 'Linux', imageOs: 'ubuntu24', platform: 'linux' },
-		'canonical-macos-14': { runnerId: 'macos-14', os: 'macOS', imageOs: 'macos14', platform: 'darwin' },
+		'canonical-macos-15': { runnerId: 'macos-15', os: 'macOS', imageOs: 'macos15', platform: 'darwin' },
 		'canonical-windows-2022': { runnerId: 'windows-2022', os: 'Windows', imageOs: 'win22', platform: 'win32' },
 		'canonical-windows-2025': { runnerId: 'windows-2025', os: 'Windows', imageOs: 'win25-vs2026', platform: 'win32' },
 	}[name];
