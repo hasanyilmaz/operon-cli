@@ -31,6 +31,8 @@ import type {
 	PeriodicNoteCreateSpecV1,
 	PeriodicNoteUpdateSpecV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
+import { fileTaskTitlesApplyCapabilityV1 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/file-task-titles-v1/contracts';
+import { isFileTaskTitlesPreviewCapabilityV1 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/file-task-titles-v1/decode';
 import {
 	CONTRACT_LIMITS_V1,
 	OPERON_ID_PATTERN_V1,
@@ -60,8 +62,11 @@ import type {
 	RuntimeMutationResultV1,
 	RuntimeSealedMutationPlanV1,
 } from './runtime-contract-compatibility';
-import { isTaskWorkflowPlanV1 } from './runtime-contract-compatibility';
-import { admitRuntimeMutationPreviewPlanV1 } from './runtime-contract-compatibility';
+import {
+	admitRuntimeMutationPreviewPlanV1,
+	isFileTaskTitlesPlanV1,
+	isTaskWorkflowPlanV1,
+} from './runtime-contract-compatibility';
 
 type RuntimeCapabilityIdV1 = RuntimeCapabilityAdvertisementV1['id'];
 import type { PersistentReadTransportV1 } from './persistent-read-client';
@@ -127,6 +132,7 @@ import {
 } from './direct-lifecycle';
 import { compileDirectAdoptIntentV1 } from './direct-adopt';
 import { withFileTaskIdentityPlaceholderPolicyV1 } from './create-identity-policy';
+import { fileTaskTitleCreateSpecV1, isFileTaskTitleTextV1 } from './file-task-title-input';
 import {
 	compileDirectPinnedIntentV1,
 	type DirectPinnedActionV1,
@@ -149,6 +155,7 @@ import {
 	askGuidedMaintenanceApplyV1,
 	type GuidedMutationIntentV1,
 	type GuidedMaintenanceResultV1,
+	runGuidedFileTaskTitleWizardV1,
 	runGuidedReminderWizardV1,
 	runGuidedTaskUpdateWizardV1,
 	runGuidedTimerStartWizardV1,
@@ -808,6 +815,7 @@ async function runConvenienceCommand(
 			'--obsidian-bin',
 			...(allowsGuidedCreation || allowsCompactUpdate ? ['--input-format'] : []),
 			...(allowsGuidedCreation ? ['--periodic-note'] : []),
+			...(allowsGuidedCreation || allowsCompactUpdate ? ['--title'] : []),
 			...(allowsCompactUpdate || allowsDirectMutation ? ['--id', '--description'] : []),
 			...(allowsDirectSourceTransition ? ['--target-file'] : []),
 			...(allowsDirectAdopt ? ['--file', '--status-id'] : []),
@@ -824,6 +832,7 @@ async function runConvenienceCommand(
 				? ['--preview-only']
 				: []),
 			...(allowsDirectAdopt ? ['--reopen'] : []),
+			...(allowsCompactUpdate ? ['--clear-title'] : []),
 		],
 		...(allowsGuidedCreation || allowsCompactUpdate || allowsDirectMutation
 			? { positional: 'any' as const }
@@ -833,6 +842,7 @@ async function runConvenienceCommand(
 		const inputPath = parsed.values['--input'];
 		const inputFormat = parsed.values['--input-format'];
 		const periodicKind = parsePeriodicNoteKindV1(parsed.values['--periodic-note']);
+		const title = parsed.values['--title'];
 		if (inputFormat && !inputPath) throw new Error('INPUT_FORMAT_REQUIRES_INPUT');
 		if (
 			inputFormat
@@ -844,6 +854,10 @@ async function runConvenienceCommand(
 		}
 		if (inputPath && periodicKind !== undefined) throw new Error('PERIODIC_INPUT_CONFLICT');
 		if (inputPath && parsed.positionals.length > 0) throw new Error('COMPACT_INPUT_CONFLICT');
+		if (title !== undefined && (inputPath || periodicKind !== undefined || parsed.positionals[0] !== 'file')) {
+			throw new Error('FILE_TASK_TITLE_CREATE_ARGUMENTS');
+		}
+		if (title !== undefined && !isFileTaskTitleTextV1(title)) throw new Error('FILE_TASK_TITLE_INVALID');
 		if (inputPath && inputFormat === 'compact') {
 			const ast = parseCompactCreateInputV1(await readInputText(inputPath, ports.input));
 			return await runCompactCreationCommand(ast, parsed, ports, true);
@@ -857,12 +871,14 @@ async function runConvenienceCommand(
 			return await runCompactBatchCreationCommand(asts, parsed, ports);
 		}
 		if (!inputPath) {
-			const route = parseCompactCreateArgvV1(parsed.positionals);
+			const route = parseCompactCreateArgvV1(title === undefined
+				? parsed.positionals
+				: ['file', title, ...parsed.positionals.slice(1)]);
 			if (route.route === 'compact') {
 				if (periodicKind !== undefined && route.ast.representation !== null) {
 					throw new Error('PERIODIC_REPRESENTATION_OVERRIDE');
 				}
-				return await runCompactCreationCommand(route.ast, parsed, ports, false);
+				return await runCompactCreationCommand(route.ast, parsed, ports, false, title !== undefined);
 			}
 			if (periodicKind !== undefined) {
 				if (!route.initialDescription) throw new Error('PERIODIC_DESCRIPTION_REQUIRED');
@@ -891,6 +907,16 @@ async function runConvenienceCommand(
 			throw new Error('INPUT_FORMAT_UNSUPPORTED');
 		}
 		const recurrenceScope = parsed.values['--scope'];
+		const title = parsed.values['--title'];
+		const clearTitle = parsed.booleans.has('--clear-title');
+		if (title !== undefined || clearTitle) {
+			if ((title !== undefined && clearTitle) || inputPath || recurrenceScope !== undefined
+				|| parsed.positionals.length > 0 || parsed.multiValues['--clear']?.length) {
+				throw new Error('FILE_TASK_TITLE_UPDATE_ARGUMENTS');
+			}
+			if (title !== undefined && !isFileTaskTitleTextV1(title)) throw new Error('FILE_TASK_TITLE_INVALID');
+			return await runDirectFileTaskTitleCommand(title ?? null, parsed, ports);
+		}
 		if (
 			recurrenceScope !== undefined
 			&& recurrenceScope !== 'this-task'
@@ -1058,6 +1084,16 @@ async function runConvenienceCommand(
 		: intent.spec;
 	const mapping = convenienceMapping(command, spec as Record<string, unknown>);
 	if (spec.operation !== mapping.operation) throw new Error('MUTATION_OPERATION_MISMATCH');
+	const titleCapability = isFileTaskTitlesPreviewCapabilityV1(mapping.capability) ? mapping.capability : undefined;
+	if (titleCapability) {
+		const item = intent.spec.item;
+		const title = titleCapability === 'tasks.file.create.preview'
+			? (isPlainRecord(item) ? item.displayTitle : undefined)
+			: intent.spec.displayTitle;
+		if (!(titleCapability === 'tasks.file.title.preview' && title === null) && !isFileTaskTitleTextV1(title)) {
+			throw new Error('FILE_TASK_TITLE_INVALID');
+		}
+	}
 	if (
 		mapping.capability === 'tasks.create.periodic-note.preview'
 		|| mapping.capability === 'tasks.update.periodic-note.preview'
@@ -1123,7 +1159,18 @@ async function runConvenienceCommand(
 		...(parsed.values['--obsidian-bin'] ? ['--obsidian-bin', parsed.values['--obsidian-bin']] : []),
 		...(parsed.booleans.has('--json') ? ['--json'] : []),
 	];
-	return await runRuntimeCommand(runtimeArgs, ports, {
+	const previewPorts = titleCapability ? withResolvedRuntimeTargetV1(parsed.values, ports) : ports;
+	if (titleCapability) {
+		const denied = await checkFileTaskTitleCapabilityV1(
+			titleCapability,
+			runtimeTargetArgsFor(parsed.values, previewPorts._resolvedTarget),
+			previewPorts,
+			command,
+			parsed.booleans.has('--json'),
+		);
+		if (denied) return denied;
+	}
+	return await runRuntimeCommand(runtimeArgs, previewPorts, {
 		input: Buffer.from(JSON.stringify(request), 'utf8'),
 	});
 }
@@ -1175,6 +1222,7 @@ async function runCompactCreationCommand(
 	},
 	ports: PublicCommandPortsV1,
 	inputMode: boolean,
+	titled = false,
 ): Promise<PublicCommandOutcomeV1> {
 	const scopedPorts = withResolvedRuntimeTargetV1(parsed.values, ports);
 	const requireApply = !inputMode && !parsed.booleans.has('--preview-only');
@@ -1207,9 +1255,11 @@ async function runCompactCreationCommand(
 		model: creation.model,
 		itemRef: randomUUID(),
 	});
-	const intent = periodicKind === undefined
-		? compiledIntent
-		: compilePeriodicNoteCreateIntentV1(compiledIntent, periodicKind);
+	const intent = titled
+		? { ...compiledIntent, spec: fileTaskTitleCreateSpecV1(compiledIntent.spec.items[0]) }
+		: periodicKind === undefined
+			? compiledIntent
+			: compilePeriodicNoteCreateIntentV1(compiledIntent, periodicKind);
 	const runtimeTargetArgs = creation.runtimeTargetArgs;
 	const preview = await runConvenienceCommand(
 		'task.create',
@@ -1240,15 +1290,18 @@ async function runCompactCreationCommand(
 		return compactPreviewOutcome(preview, planRef, 'No task was created.');
 	}
 	const root = scopedPorts.configRoot ?? operonCliConfigRootV1();
-	const stored = readMutationPlanV1(planRef, root);
+	const storedPlan = readMutationPlanV1(planRef, root).plan;
+	const titlePlan = isFileTaskTitlesPlanV1(storedPlan) ? storedPlan : undefined;
+	const creationPlan = titlePlan?.executionPlan ?? storedPlan;
 	if (
-		!(periodicKind === undefined
-			? isExpectedCompactSingleCreationPlanV1(stored.plan, compiledIntent.spec)
+		titled !== Boolean(titlePlan)
+		|| !(periodicKind === undefined
+			? isExpectedCompactSingleCreationPlanV1(creationPlan, compiledIntent.spec)
 			: isExpectedPeriodicNoteCreatePlanV1(
-				stored.plan,
+				storedPlan,
 				(intent as Omit<GuidedCreationIntentV1, 'spec'> & { spec: PeriodicNoteCreateSpecV1 }).spec,
 			))
-		|| !isCompactPreviewSafeToAutoApply(preview, stored.plan, true, true)
+		|| !isCompactPreviewSafeToAutoApply(preview, storedPlan, true, true)
 	) {
 		return compactPreviewOutcome(
 			preview,
@@ -1681,6 +1734,42 @@ async function runCompactUpdateCommand(
 		root,
 		false,
 	);
+}
+
+async function runDirectFileTaskTitleCommand(
+	displayTitle: string | null,
+	parsed: { values: Record<string, string>; booleans: Set<string> },
+	ports: PublicCommandPortsV1,
+): Promise<PublicCommandOutcomeV1> {
+	const selector = directSelectorFrom(parsed.values);
+	const scopedPorts = withResolvedRuntimeTargetV1(parsed.values, ports);
+	const runtimeTargetArgs = runtimeTargetArgsFor(parsed.values, scopedPorts._resolvedTarget);
+	const resolved = await resolveExactDirectTaskV1({
+		...selector,
+		incompleteCode: 'DIRECT_TARGET_INCOMPLETE',
+		runtimeTargetArgs,
+		ports: scopedPorts,
+	});
+	if (!resolved.ok) return { ...resolved.outcome, json: parsed.booleans.has('--json') };
+	const task = resolved.task;
+	if (task.locator.representation !== 'file') throw new Error('DIRECT_FILE_TASK_REQUIRED');
+	return await previewAndMaybeApplyDirectIntentV1({
+		command: 'task.update',
+		previewCommand: 'task.update',
+		expectedMutationKind: 'task.update',
+		intent: {
+			contractVersion: 1,
+			kind: 'mutation-intent',
+			reason: 'The user requested an exact File Task title update.',
+			target: { operonId: task.identity.operonId, locator: task.locator },
+			spec: { operation: 'set-title', displayTitle },
+		},
+		previewOnly: parsed.booleans.has('--preview-only'),
+		parsed,
+		runtimeTargetArgs,
+		ports: scopedPorts,
+		previewMessage: 'The File Task title was not changed.',
+	});
 }
 
 async function runCompactUpdateBatchCommand(
@@ -2534,6 +2623,28 @@ async function requirePeriodicCapabilitiesV1(options: {
 	return { ok: true };
 }
 
+async function checkFileTaskTitleCapabilityV1(
+	capability: RuntimeCapabilityIdV1,
+	runtimeTargetArgs: string[],
+	ports: PublicCommandPortsV1,
+	command: string,
+	json: boolean,
+): Promise<PublicCommandOutcomeV1 | undefined> {
+	let advertisements: unknown = ports._capabilityAdvertisements;
+	if (advertisements === undefined) {
+		const outcome = await runRuntimeCommand(['capabilities', ...runtimeTargetArgs, '--json'], ports);
+		if (outcome.exitCode !== 0 || outcome.envelope.kind !== 'cli-result' || !outcome.envelope.ok) {
+			return { ...outcome, json };
+		}
+		advertisements = outcome.envelope.result;
+	}
+	try {
+		assertCapabilitiesAvailable(advertisements, [capability], 'FILE_TASK_TITLE_CAPABILITY_UNAVAILABLE');
+	} catch (error) {
+		return localFailure(command, json, error);
+	}
+}
+
 async function previewAndMaybeApplyDirectIntentV1(options: {
 	command: string;
 	previewCommand: string;
@@ -2908,7 +3019,10 @@ function isExpectedDirectMutationPlan(
 	}
 	if (isTaskWorkflowPlanV1(plan)) return false;
 	const target = intent.target;
-	const specsMatch = intent.spec.operation === 'set-pinned'
+	const specsMatch = isFileTaskTitlesPlanV1(plan)
+		? intent.spec.operation === 'set-title'
+			&& canonicalJsonV1(toJsonValueV1(plan.spec)) === canonicalJsonV1(toJsonValueV1(intent.spec))
+		: intent.spec.operation === 'set-pinned'
 		? isExpectedDirectPinnedSpec(plan.spec, intent.spec)
 		: intent.spec.operation === 'relocate-inline'
 			? isExpectedDirectRelocateSpecV1(plan.spec, intent.spec, target?.locator)
@@ -3137,6 +3251,7 @@ export function isExpectedCompactRecurrencePlan(
 	plan: RuntimeSealedMutationPlanV1,
 	intent: GuidedMutationIntentV1,
 ): boolean {
+	if (isFileTaskTitlesPlanV1(plan)) return false;
 	const target = intent.target;
 	if (
 		plan.mutationKind !== 'task.recurrence'
@@ -3222,6 +3337,7 @@ function isExpectedCompactRelationshipPlan(
 	plan: RuntimeSealedMutationPlanV1,
 	intent: GuidedMutationIntentV1,
 ): boolean {
+	if (isFileTaskTitlesPlanV1(plan)) return false;
 	const target = intent.target;
 	const requestedChangesValue: unknown = intent.spec.changes;
 	if (
@@ -3293,6 +3409,7 @@ async function runGuidedCreationCommand(
 		: createProcessGuidedPort();
 	if (!terminal) throw new Error('GUIDED_TTY_REQUIRED');
 	try {
+		ports = withResolvedRuntimeTargetV1(parsed.values, ports);
 		const creation = await loadCreationModelV1(
 			parsed,
 			ports,
@@ -3302,14 +3419,21 @@ async function runGuidedCreationCommand(
 		);
 		if ('outcome' in creation) return { ...creation.outcome, json: false };
 		const { model, runtimeTargetArgs } = creation;
+		const allowFileTaskTitle = ports._capabilityAdvertisements?.some(item => (
+			item.id === 'tasks.file.create.preview' && item.availability === 'available'
+		)) ?? false;
 		const wizard = await runGuidedCreationWizardV1({
 			model,
 			port: terminal.port,
 			itemRef: randomUUID(),
+			allowFileTaskTitle,
 			...(parsed.positionals[0] ? { initialDescription: parsed.positionals[0] } : {}),
 		});
 		if (wizard.status === 'cancelled') {
 			return localSuccess('task.create', false, { cancelled: true }, wizard.message);
+		}
+		if (allowFileTaskTitle && wizard.intent.spec.operation === 'create') {
+			assertCreationCapabilities(ports._capabilityAdvertisements, true, 'GUIDED_CAPABILITY_UNAVAILABLE');
 		}
 		const previewArgs = [
 			'task',
@@ -3405,8 +3529,15 @@ async function loadCreationModelV1(
 		) {
 			return { outcome: capabilities };
 		}
-		assertCreationCapabilities(capabilities.envelope.result, requireApply, capabilityErrorCode);
-		ports._capabilityAdvertisements = capabilities.envelope.result as CapabilityAdvertisementV1[];
+		const advertisements = capabilities.envelope.result as RuntimeCapabilityAdvertisementV1[];
+		if (capabilityErrorCode === 'GUIDED_CAPABILITY_UNAVAILABLE' && advertisements.some(item => (
+			item.id === 'tasks.file.create.preview' && item.availability === 'available'
+		))) {
+			assertCapabilitiesAvailable(advertisements, ['context.build']);
+		} else {
+			assertCreationCapabilities(advertisements, requireApply, capabilityErrorCode);
+		}
+		ports._capabilityAdvertisements = advertisements;
 	}
 	const contextRequest = {
 		contractVersion: 1,
@@ -3491,7 +3622,7 @@ async function runGuidedMaintenanceCommand(
 		? { port: ports.interactive, close: () => undefined }
 		: createProcessGuidedPort();
 	if (!terminal) throw new Error('GUIDED_MAINTENANCE_TTY_REQUIRED');
-	const runtimeTargetArgs = runtimeTargetArgsFor(parsed.values);
+	let runtimeTargetArgs = runtimeTargetArgsFor(parsed.values);
 	const runtimeResponse = async <T>(
 		args: string[],
 		input?: Buffer,
@@ -3563,13 +3694,28 @@ async function runGuidedMaintenanceCommand(
 		if (!response.value.placement) throw new Error('GUIDED_PLACEMENT_UNAVAILABLE');
 		return response.value.placement;
 	};
-	const selectTask = async (
-		include: TaskGetHydrationKeyV1[] = [],
-	): Promise<
-		| { status: 'selected'; task: TaskContextV1 }
+	type TaskSelection =
+		| { status: 'selected'; task: TaskContextV1; selector: TaskSelectorV1 }
 		| { status: 'cancelled' }
-		| { status: 'failed'; outcome: PublicCommandOutcomeV1 }
-	> => {
+		| { status: 'failed'; outcome: PublicCommandOutcomeV1 };
+	const hydrateTask = async (
+		selector: TaskSelectorV1,
+		include: TaskGetHydrationKeyV1[],
+	): Promise<Exclude<TaskSelection, { status: 'cancelled' }>> => {
+		const hydrated = await readTask(selector, include);
+		if (!hydrated.ok) return { status: 'failed', outcome: hydrated.failure as PublicCommandOutcomeV1 };
+		if (!hydrated.value.ok) return { status: 'failed', outcome: hydrated.opaque as PublicCommandOutcomeV1 };
+		const hydrationPaths = include.map(key => (
+			key === 'writable-fields' ? 'writableFields' : 'reminderItems'
+		));
+		if (hydrated.value.truncations.some(item => (
+			hydrationPaths.some(path => item.path.includes(path))
+		))) {
+			throw new Error('GUIDED_HYDRATION_TRUNCATED');
+		}
+		return { status: 'selected', task: hydrated.value.task, selector };
+	};
+	const selectTask = async (include: TaskGetHydrationKeyV1[] = []): Promise<TaskSelection> => {
 		const selected = await runGuidedTaskFinderV1({
 			port: terminal.port,
 			purpose: 'mutation-target',
@@ -3596,25 +3742,15 @@ async function runGuidedMaintenanceCommand(
 		if (selected.status === 'failed') {
 			return { status: 'failed', outcome: selected.failure as PublicCommandOutcomeV1 };
 		}
-		if (include.length === 0) return { status: 'selected', task: selected.task };
-		const hydrated = await readTask(selected.selector, include);
-		if (!hydrated.ok) {
-			return { status: 'failed', outcome: hydrated.failure as PublicCommandOutcomeV1 };
-		}
-		if (!hydrated.value.ok) {
-			return { status: 'failed', outcome: hydrated.opaque as PublicCommandOutcomeV1 };
-		}
-		const hydrationPaths = include.map(key => (
-			key === 'writable-fields' ? 'writableFields' : 'reminderItems'
-		));
-		if (hydrated.value.truncations.some(item => (
-			hydrationPaths.some(path => item.path.includes(path))
-		))) {
-			throw new Error('GUIDED_HYDRATION_TRUNCATED');
-		}
-		return { status: 'selected', task: hydrated.value.task };
+		return include.length === 0
+			? { status: 'selected', task: selected.task, selector: selected.selector }
+			: await hydrateTask(selected.selector, include);
 	};
 	try {
+		if (command === 'task.update') {
+			ports = withResolvedRuntimeTargetV1(parsed.values, ports);
+			runtimeTargetArgs = runtimeTargetArgsFor(parsed.values, ports._resolvedTarget);
+		}
 		const mapping = convenienceMapping(command);
 		const requiredCapabilities: RuntimeCapabilityIdV1[] = [
 			OPERON_CLI_MUTATION_CAPABILITIES_V1[mapping.mutationKind].preview,
@@ -3635,8 +3771,14 @@ async function runGuidedMaintenanceCommand(
 		if (capabilities.exitCode !== 0 || capabilities.envelope.kind !== 'cli-result' || !capabilities.envelope.ok) {
 			return { ...capabilities, json: false };
 		}
-		assertCapabilitiesAvailable(capabilities.envelope.result, requiredCapabilities);
-		const capabilityAdvertisements = capabilities.envelope.result;
+		const capabilityAdvertisements = capabilities.envelope.result as RuntimeCapabilityAdvertisementV1[];
+		const allowFileTaskTitle = command === 'task.update' && capabilityAdvertisements.some(item => (
+			item.id === 'tasks.file.title.preview' && item.availability === 'available'
+		));
+		assertCapabilitiesAvailable(
+			capabilityAdvertisements,
+			allowFileTaskTitle ? ['tasks.read', 'tasks.finder'] : requiredCapabilities,
+		);
 
 		let guided: GuidedMaintenanceResultV1;
 		if (command === 'timer.start' || command === 'timer.stop') {
@@ -3688,7 +3830,7 @@ async function runGuidedMaintenanceCommand(
 				});
 			}
 		} else {
-			const include: TaskGetHydrationKeyV1[] = command === 'task.update'
+			const include: TaskGetHydrationKeyV1[] = command === 'task.update' && !allowFileTaskTitle
 				? ['writable-fields']
 				: command.startsWith('reminder.')
 					? ['reminder-items']
@@ -3698,55 +3840,48 @@ async function runGuidedMaintenanceCommand(
 				return localSuccess(command, false, { cancelled: true }, 'Guided mutation cancelled before preview.');
 			}
 			if (selected.status === 'failed') return { ...selected.outcome, json: false };
-			const needsCatalog = command !== 'task.relocate' && command !== 'task.delete';
-			const catalog = needsCatalog ? await catalogResponse() : undefined;
-			if (catalog && !catalog.ok) {
-				return { ...(catalog.failure as PublicCommandOutcomeV1), json: false };
-			}
-			const catalogValue = catalog?.ok ? catalog.value : undefined;
-			const requireCatalog = (): OperonCatalogV1 => {
-				if (!catalogValue) throw new Error('GUIDED_CATALOG_UNAVAILABLE');
-				return catalogValue;
-			};
-			if (command === 'task.update') {
-				guided = await runGuidedTaskUpdateWizardV1({
-					port: terminal.port,
-					task: selected.task,
-					catalog: requireCatalog(),
-				});
-			} else if (command === 'task.transition') {
-				guided = await runGuidedTransitionWizardV1({
-					port: terminal.port,
-					task: selected.task,
-					catalog: requireCatalog(),
-				});
-			} else if (command.startsWith('reminder.')) {
-				guided = await runGuidedReminderWizardV1({
-					port: terminal.port,
-					task: selected.task,
-					catalog: requireCatalog(),
-					operation: command.split('.')[1] as 'add' | 'replace' | 'remove',
-				});
-			} else if (command === 'task.relocate') {
-				guided = await runGuidedRelocateWizardV1({
-					port: terminal.port,
-					task: selected.task,
-					loadPlacement,
-				});
-			} else if (command === 'task.convert') {
-				guided = await runGuidedConvertWizardV1({
-					port: terminal.port,
-					task: selected.task,
-					catalog: requireCatalog(),
-					loadPlacement,
-				});
+			const titleUpdate = allowFileTaskTitle && selected.task.locator.representation === 'file'
+				? await runGuidedFileTaskTitleWizardV1(terminal.port, selected.task)
+				: null;
+			if (titleUpdate) {
+				guided = titleUpdate;
 			} else {
-				guided = await runGuidedDeleteWizardV1({
-					port: terminal.port,
-					task: selected.task,
-				});
+				let task = selected.task;
+				if (allowFileTaskTitle) {
+					assertCapabilitiesAvailable(capabilityAdvertisements, requiredCapabilities);
+					const hydrated = await hydrateTask(selected.selector, ['writable-fields']);
+					if (hydrated.status === 'failed') return { ...hydrated.outcome, json: false };
+					task = hydrated.task;
+				}
+				const needsCatalog = command !== 'task.relocate' && command !== 'task.delete';
+				const catalog = needsCatalog ? await catalogResponse() : undefined;
+				if (catalog && !catalog.ok) {
+					return { ...(catalog.failure as PublicCommandOutcomeV1), json: false };
+				}
+				const catalogValue = catalog?.ok ? catalog.value : undefined;
+				const requireCatalog = (): OperonCatalogV1 => {
+					if (!catalogValue) throw new Error('GUIDED_CATALOG_UNAVAILABLE');
+					return catalogValue;
+				};
+				const port = terminal.port;
+				if (command === 'task.update') {
+					guided = await runGuidedTaskUpdateWizardV1({ port, task, catalog: requireCatalog() });
+				} else if (command === 'task.transition') {
+					guided = await runGuidedTransitionWizardV1({ port, task, catalog: requireCatalog() });
+				} else if (command.startsWith('reminder.')) {
+					guided = await runGuidedReminderWizardV1({
+						port, task, catalog: requireCatalog(),
+						operation: command.split('.')[1] as 'add' | 'replace' | 'remove',
+					});
+				} else if (command === 'task.relocate') {
+					guided = await runGuidedRelocateWizardV1({ port, task, loadPlacement });
+				} else if (command === 'task.convert') {
+					guided = await runGuidedConvertWizardV1({ port, task, catalog: requireCatalog(), loadPlacement });
+				} else {
+					guided = await runGuidedDeleteWizardV1({ port, task });
+				}
+				if (placementFailure) return { ...placementFailure, json: false };
 			}
-			if (placementFailure) return { ...placementFailure, json: false };
 		}
 		if (guided.status !== 'ready') {
 			return localSuccess(command, false, { status: guided.status }, guided.message);
@@ -3763,7 +3898,11 @@ async function runGuidedMaintenanceCommand(
 					? ['--request-id', parsed.values['--request-id']]
 					: []),
 			],
-			{ ...ports, input: Buffer.from(JSON.stringify(guided.intent), 'utf8') },
+			{
+				...ports,
+				_capabilityAdvertisements: capabilityAdvertisements,
+				input: Buffer.from(JSON.stringify(guided.intent), 'utf8'),
+			},
 		);
 		if (
 			preview.exitCode !== 0
@@ -4518,6 +4657,29 @@ async function runPlanApply(
 	let applyRequest = recovery
 		? requireRecoveryRequest(record.applyRequest)
 		: buildMutationApplyRequestV1(record, { confirmationToken: confirmation });
+	if (isFileTaskTitlesPlanV1(record.plan)) {
+		const action = recovery ? 'recover' : 'apply';
+		const denied = await checkFileTaskTitleCapabilityV1(
+			fileTaskTitlesApplyCapabilityV1(record.plan.capability),
+			runtimeTargetArgsFor({ ...parsed.values, '--vault': record.vaultPath }),
+			{ ...ports, _capabilityAdvertisements: undefined },
+			`plan.${action}`,
+			json,
+		);
+		if (denied) {
+			const envelope = denied.envelope;
+			return {
+				...denied,
+				envelope: envelope.kind === 'cli-result'
+					? { ...envelope, client: { ...envelope.client, planRef } }
+					: { ...envelope, error: envelope.error && {
+						...envelope.error,
+						details: { ...envelope.error.details, planRef },
+					} },
+				human: `${denied.human}\nPlan saved. Run operon plan ${action} ${planRef} when the capability is available.`,
+			};
+		}
+	}
 	if (!recovery) {
 		record = markMutationPlanDispatchedV1(record, applyRequest, root);
 		applyRequest = requireRecoveryRequest(record.applyRequest);
@@ -4761,6 +4923,12 @@ export function convenienceMapping(command: string, spec?: Record<string, unknow
 	capability: RuntimeMutationPreviewRequestV1['capability'];
 	operation: string;
 } {
+	if (command === 'task.create' && spec?.operation === 'create-file') {
+		return { mutationKind: 'task.create', capability: 'tasks.file.create.preview', operation: 'create-file' };
+	}
+	if (command === 'task.update' && spec?.operation === 'set-title') {
+		return { mutationKind: 'task.update', capability: 'tasks.file.title.preview', operation: 'set-title' };
+	}
 	if (command === 'task.create' && isPeriodicNoteCreateSpecV1(spec)) {
 		return {
 			mutationKind: 'task.create',
@@ -5149,6 +5317,7 @@ function localFailure(
 		'DESCRIPTION_RESOLUTION_INCOMPLETE',
 		'DIRECT_CAPABILITY_UNAVAILABLE',
 		'FILTER_QUERY_CAPABILITY_UNAVAILABLE',
+		'FILE_TASK_TITLE_CAPABILITY_UNAVAILABLE',
 		'DIRECT_REMINDER_ITEM_AMBIGUOUS',
 		'DIRECT_REMINDER_ITEM_NOT_FOUND',
 		'DIRECT_REMINDER_ITEMS_INCOMPLETE',
@@ -5275,6 +5444,9 @@ function localFailure(
 		'DIRECT_TEMPLATE_INVALID',
 		'DESCRIPTION_CLEAR_UNAVAILABLE',
 		'DUPLICATE_CLEAR',
+		'FILE_TASK_TITLE_CREATE_ARGUMENTS',
+		'FILE_TASK_TITLE_INVALID',
+		'FILE_TASK_TITLE_UPDATE_ARGUMENTS',
 		'DUPLICATE_KEY',
 		'DUPLICATE_LIST_ELEMENT',
 		'DUPLICATE_FLAG',
@@ -5439,6 +5611,10 @@ function localErrorReason(code: string): string {
 		AMBIGUOUS_PRIORITY: 'The live priority is ambiguous.',
 		AMBIGUOUS_STATUS: 'The live Pipeline.Status is ambiguous.',
 		COMPACT_CAPABILITY_UNAVAILABLE: 'Compact task creation is unavailable.',
+		FILE_TASK_TITLE_CAPABILITY_UNAVAILABLE: 'The Runtime capability for this File Task title operation is unavailable.',
+		FILE_TASK_TITLE_CREATE_ARGUMENTS: 'Use task create file --title <text> with optional field assignments.',
+		FILE_TASK_TITLE_INVALID: 'A File Task title must contain text and fit within 8192 UTF-8 bytes.',
+		FILE_TASK_TITLE_UPDATE_ARGUMENTS: 'Choose --title or --clear-title and one exact selector for a standalone title update.',
 		COMPACT_BATCH_BLANK_LINE: 'Compact line batches cannot contain blank records.',
 		COMPACT_BATCH_CAPABILITY_UNAVAILABLE: 'The live Runtime does not advertise compact line batch creation.',
 		COMPACT_BATCH_EMPTY: 'Compact line batch input requires at least one record.',

@@ -505,6 +505,22 @@
               ]
             }
           }
+        },
+        "fileTaskTitlesV1": {
+          "const": {
+            "extensionId": "file-task-titles-v1",
+            "contractVersion": 1,
+            "pluginCheckpointCommit": "a04545858ae975123a4c015efb06827b3a6a1f47",
+            "baseContractDigest": "407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b",
+            "baseSchemaManifestAggregateSha256": "43ca9fa184f9a2433a3583446ab19557e7c81b3e3b0f3f57be95a95ee3859506",
+            "aggregateSha256": "44f43f3bf9426172bcc93fd25db5dc34a14c6be2075403ef3f0e0b82ff67b217",
+            "capabilities": [
+              "tasks.file.create.preview",
+              "tasks.file.create.apply",
+              "tasks.file.title.preview",
+              "tasks.file.title.apply"
+            ]
+          }
         }
       }
     },

@@ -143,14 +143,41 @@
           "$ref": "urn:operon:schema:runtime:v1:mutation.schema.json#/$defs/exactMutationTarget"
         },
         "spec": {
-          "$ref": "urn:operon:schema:runtime:v1:mutation.schema.json#/$defs/mutationPreviewSpec"
+          "anyOf": [
+            { "$ref": "urn:operon:schema:runtime:v1:mutation.schema.json#/$defs/mutationPreviewSpec" },
+            {
+              "$ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/createSpec",
+              "properties": { "item": { "properties": { "displayTitle": { "pattern": "\\S" } } } }
+            },
+            {
+              "$ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/editSpec",
+              "properties": { "displayTitle": { "pattern": "\\S" } }
+            }
+          ]
         },
         "reason": {
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "spec": { "properties": { "operation": { "const": "create-file" } } } } },
+          "then": { "not": { "required": ["target"] } }
+        },
+        {
+          "if": { "properties": { "spec": { "properties": { "operation": { "const": "set-title" } } } } },
+          "then": {
+            "required": ["target"],
+            "properties": {
+              "target": {
+                "properties": { "locator": { "properties": { "representation": { "const": "file" } } } }
+              }
+            }
+          }
+        }
+      ]
     },
     "publicPlan": {
       "type": "object",
@@ -184,6 +211,8 @@
           "type": "string",
           "enum": [
             "tasks.create.preview",
+            "tasks.file.create.preview",
+            "tasks.file.title.preview",
             "tasks.update.preview",
             "tasks.recurrence.preview",
             "tasks.relationship.preview",
@@ -253,7 +282,11 @@
           }
         },
         "spec": {
-          "$ref": "urn:operon:schema:runtime:v1:mutation.schema.json#/$defs/mutationSpec"
+          "anyOf": [
+            { "$ref": "urn:operon:schema:runtime:v1:mutation.schema.json#/$defs/mutationSpec" },
+            { "$ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/createSpec" },
+            { "$ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/editSpec" }
+          ]
         },
         "createEffects": {
           "type": "array",

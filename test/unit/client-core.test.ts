@@ -944,7 +944,7 @@ function testInteractiveShellLexingAndCompletion(): void {
 		'update',
 	]);
 	assert.deepEqual(completeInteractiveShellLineV1('task create --j')[0], ['--json']);
-	assert.deepEqual(completeInteractiveShellLineV1('task update --cl')[0], ['--clear']);
+	assert.deepEqual(completeInteractiveShellLineV1('task update --cl')[0], ['--clear', '--clear-title']);
 	assert.deepEqual(completeInteractiveShellLineV1('task update --scope ')[0], [
 		'this-and-following',
 		'this-task',
@@ -2911,6 +2911,7 @@ async function testGuidedCreationModel(): Promise<void> {
 	});
 	assert.equal(result.status, 'ready');
 	if (result.status !== 'ready') throw new Error('GUIDED_TEST_FAILED');
+	assert.ok(result.intent.spec.operation === 'create');
 	const item = result.intent.spec.items[0];
 	assert.equal(item.description, 'Guided test task');
 	assert.deepEqual(item.target, { representation: 'inline', mode: 'configured-default' });
@@ -2974,6 +2975,7 @@ async function testGuidedCreationModel(): Promise<void> {
 	});
 	assert.equal(exactTarget.status, 'ready');
 	if (exactTarget.status !== 'ready') throw new Error('GUIDED_EXACT_TARGET_TEST_FAILED');
+	assert.ok(exactTarget.intent.spec.operation === 'create');
 	assert.deepEqual(exactTarget.intent.spec.items[0].target, {
 		representation: 'inline',
 		mode: 'exact-path',
@@ -3011,6 +3013,7 @@ async function testGuidedCreationModel(): Promise<void> {
 	});
 	assert.equal(assigned.status, 'ready');
 	if (assigned.status !== 'ready') throw new Error('GUIDED_ASSIGNEE_TEST_FAILED');
+	assert.ok(assigned.intent.spec.operation === 'create');
 	assert.deepEqual(assigned.intent.spec.items[0].fields[0], {
 		kind: 'list',
 		field: 'assignees',
@@ -3046,6 +3049,7 @@ async function testGuidedCreationModel(): Promise<void> {
 	});
 	assert.equal(runtimeTemplate.status, 'ready');
 	if (runtimeTemplate.status !== 'ready') throw new Error('GUIDED_RUNTIME_TEMPLATE_TEST_FAILED');
+	assert.ok(runtimeTemplate.intent.spec.operation === 'create');
 	assert.deepEqual(runtimeTemplate.intent.spec.items[0].target, {
 		representation: 'file',
 		mode: 'configured-default',

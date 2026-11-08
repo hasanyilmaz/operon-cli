@@ -10,6 +10,7 @@ import type {
 	WritableFieldValueV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
 import { parseReminderOffsetInput } from '../vendor/operon-plugin-v1/src/core/reminder-rules';
+import { isFileTaskTitleTextV1 } from './file-task-title-input';
 import { fileTaskTitleForDisplayV1, sanitizeTerminalTextV1 } from './terminal-text';
 import type { InteractiveTerminalPortV1 } from './terminal-port';
 
@@ -59,6 +60,51 @@ interface CollectedUpdateV1 {
 		valueType: FieldValueTypeV1;
 	};
 	summary: string;
+}
+
+export async function runGuidedFileTaskTitleWizardV1(
+	port: InteractiveTerminalPortV1,
+	task: TaskContextV1,
+): Promise<GuidedMaintenanceResultV1 | null> {
+	const action = await choose(port, 'File Task update', [
+		{ label: 'Update task fields', value: 'fields' },
+		{ label: 'Set display title', value: 'set' },
+		{ label: 'Clear display title', value: 'clear' },
+	], 0);
+	if (action === 'fields') return null;
+	const message = 'File Task title update cancelled before preview.';
+	if (!action) return cancelled(message);
+
+	let displayTitle: string | null = null;
+	if (action === 'set') {
+		while (true) {
+			const answer = await port.ask('Display title (q to cancel): ');
+			if (answer === null || isCancel(answer)) return cancelled(message);
+			if (isFileTaskTitleTextV1(answer)) {
+				displayTitle = answer;
+				break;
+			}
+			port.write('Enter a non-blank title of at most 8192 UTF-8 bytes.\n');
+		}
+	}
+	const summary = [
+		displayTitle === null ? 'Clear the File Task display title' : 'Set the File Task display title',
+		`Source: ${display(task.locator.filePath)}`,
+		'The filename will be preserved.',
+	].join('\n');
+	port.write(`${summary}\n`);
+	if (await askYesNo(port, 'Preview this title change?', true) !== true) return cancelled(message);
+	return {
+		status: 'ready',
+		summary,
+		intent: {
+			contractVersion: 1,
+			kind: 'mutation-intent',
+			reason: 'The user requested an exact File Task title update.',
+			target: { operonId: task.identity.operonId, locator: task.locator },
+			spec: { operation: 'set-title', displayTitle },
+		},
+	};
 }
 
 export async function runGuidedTaskUpdateWizardV1(options: {

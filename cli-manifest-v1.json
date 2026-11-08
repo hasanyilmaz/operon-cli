@@ -34,6 +34,20 @@
         "tasks.adopt.preview",
         "tasks.adopt.apply"
       ]
+    },
+    "fileTaskTitlesV1": {
+      "extensionId": "file-task-titles-v1",
+      "contractVersion": 1,
+      "pluginCheckpointCommit": "a04545858ae975123a4c015efb06827b3a6a1f47",
+      "baseContractDigest": "407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b",
+      "baseSchemaManifestAggregateSha256": "43ca9fa184f9a2433a3583446ab19557e7c81b3e3b0f3f57be95a95ee3859506",
+      "aggregateSha256": "44f43f3bf9426172bcc93fd25db5dc34a14c6be2075403ef3f0e0b82ff67b217",
+      "capabilities": [
+        "tasks.file.create.preview",
+        "tasks.file.create.apply",
+        "tasks.file.title.preview",
+        "tasks.file.title.apply"
+      ]
     }
   },
   "commands": {
@@ -1095,7 +1109,7 @@
     {
       "file": "cli-manifest.schema.json",
       "id": "urn:operon:schema:cli:v1:cli-manifest.schema.json",
-      "sha256": "6ab863318925d5c38538eab87d8915da8f326ca4b0d905e879b1301f096964dc"
+      "sha256": "b19992bb066e6f1d606202a72adb2b16d63796756bd5bf738a7b7832950503a3"
     },
     {
       "file": "cli.schema.json",
@@ -1197,7 +1211,7 @@
     {
       "file": "operon-cli-local.schema.json",
       "id": "urn:operon:schema:cli:v1:operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49"
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d"
     },
     {
       "file": "read.schema.json",
@@ -1369,7 +1383,7 @@
       "schemaId": "doctor-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/doctorResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
@@ -1579,7 +1593,7 @@
       "schemaId": "manifest-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/manifestResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
@@ -1593,14 +1607,14 @@
       "schemaId": "mutation-intent",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/mutationIntent",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "mutation-plan-reference",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/mutationPlanReference",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
@@ -1642,70 +1656,70 @@
       "schemaId": "operon-cli-config",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/config",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "operon-cli-local-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/localResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "plan-apply-local-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/planApplyLocalResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "plan-discard-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/planDiscardResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "plan-recover-local-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/planRecoverLocalResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "plan-show-envelope",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/planShowEnvelope",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "plan-show-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/planShowResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "profile-default-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/profileDefaultResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "profile-list-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/profileListResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "profile-remove-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/profileRemoveResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
@@ -1740,14 +1754,14 @@
       "schemaId": "schema-get-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/schemaGetResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
       "schemaId": "schema-list-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/schemaListResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
@@ -1803,7 +1817,7 @@
       "schemaId": "setup-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/setupResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     },
     {
@@ -2209,9 +2223,9 @@
       "schemaId": "version-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/versionResult",
       "file": "operon-cli-local.schema.json",
-      "sha256": "b1bd81c72fbd07aff24a19909a25c20550b9d33cbc105f641dfbcf2b89130f49",
+      "sha256": "e163621b6a90b1219fb93e32a6c140c4725462e34ef12ee04b73c61513731e7d",
       "stability": "stable"
     }
   ],
-  "contractDigest": "bda87d1b3d231fbff11f9d7ac88caf2de52b2205c843e029b01c9f5838e09f03"
+  "contractDigest": "d4d9d977836973d22800b04bcf3d82c0462a59f6275efd3685f89fb738ee058e"
 }

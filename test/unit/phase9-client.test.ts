@@ -203,6 +203,7 @@ test('command registry is the unique manifest and future completion authority', 
 		'--periodic-note',
 		'--preview-only',
 		'--profile',
+		'--title',
 		'--vault',
 	]);
 	assert.deepEqual(
@@ -214,6 +215,8 @@ test('command registry is the unique manifest and future completion authority', 
 		['json'],
 	);
 	assert.ok(completionCandidatesV1(['task', 'update', '--']).includes('--clear'));
+	assert.ok(completionCandidatesV1(['task', 'update', '--']).includes('--title'));
+	assert.ok(completionCandidatesV1(['task', 'update', '--']).includes('--clear-title'));
 	assert.ok(
 		completionCandidatesV1(['task', 'update', '--clear', 'dateDue', '--'])
 			.includes('--clear'),
@@ -681,6 +684,7 @@ test('help and unknown commands are resolved locally before vault or Runtime acc
 			'Usage:',
 			'  operon task create [description] [--preview-only] [--vault <path>|--profile <alias>]',
 			'  operon task create [inline|file] "Description" [key::"VALUE"...] [--preview-only] [--json]',
+			'  operon task create file --title <text> [key::"VALUE"...] [--preview-only] [--json]',
 			'  operon task create "Description" --periodic-note <daily|weekly> [key::"VALUE"...] [--preview-only] [--json]',
 			'  operon task create --input-format compact --input <file|-> [--json]',
 			'  operon task create --input-format compact-lines --input <file|-> [--json]',
@@ -693,11 +697,13 @@ test('help and unknown commands are resolved locally before vault or Runtime acc
 			'  --json               Emit exactly one JSON result envelope.',
 			'  --input-format <json|compact|compact-lines>  Parse typed JSON, one compact record, or 1-64 compact lines.',
 			'  --periodic-note <daily|weekly>  Route one inline task through Plugin-owned Daily or Weekly note semantics.',
+			'  --title <text>         Create one File Task with a display title. Operon chooses the configured filename.',
 			'  --preview-only        Keep the reviewed create plan without applying it.',
 			'  description            Optional guided-mode task text.',
 			'',
 			'Examples:',
 			'  operon task create',
+			'  operon task create file --title "Review Q3 Plan" --preview-only',
 			'  operon task create inline "CLI test task" status::"EXACT LIVE PIPELINE.STATUS"',
 			'  operon task create "Follow up" dateDue::"2026-08-01" reminderRules::"dateDue.30m"',
 			'  operon task create "Daily review" --periodic-note daily dateScheduled::"2026-08-21"',
@@ -719,6 +725,8 @@ test('help and unknown commands are resolved locally before vault or Runtime acc
 			runProcess,
 		});
 		assert.equal(taskUpdateHelp.exitCode, 0);
+		assert.match(taskUpdateHelp.human, /--title <text>\|--clear-title/u);
+		assert.match(taskUpdateHelp.human, /filename for a File Task/u);
 		assert.match(taskUpdateHelp.human, /estimate::"SECONDS"/u);
 		assert.match(taskUpdateHelp.human, /estimate::"3600"/u);
 		assert.doesNotMatch(taskUpdateHelp.human, /estimate::"MINUTES"/u);
@@ -3046,6 +3054,7 @@ async function validatePublishedPlanShowResult(
 ): Promise<{ valid: boolean; errors: unknown }> {
 	const schemaRoots = [
 		path.join(process.cwd(), 'vendor', 'operon-plugin-v1', 'contracts', 'agent-runtime', 'v1'),
+		path.join(process.cwd(), 'schemas', 'v1', 'extensions', 'file-task-titles-v1'),
 		path.join(process.cwd(), 'schema-source'),
 	];
 	const ajv = new Ajv2020({ strict: false, logger: false });
