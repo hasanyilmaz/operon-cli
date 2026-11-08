@@ -450,6 +450,7 @@ function renderMutationResult(result: Record<string, unknown>, planRef?: string)
 		`May have applied: ${yesNo(result.mutationMayHaveApplied)}`,
 		`Retry allowed: ${yesNo(result.retryAllowed)}`,
 	];
+	if (result.recoveryOutcome === 'compensated') lines.push('Recovery: changes were rolled back.');
 	if (Object.keys(postflight).length > 0) {
 		lines.push(`Postflight: ${safe(postflight.status, LABEL_LIMIT)}`);
 		if (postflight.observedAt !== undefined) lines.push(`Verified at: ${safe(postflight.observedAt, LABEL_LIMIT)}`);
@@ -613,6 +614,14 @@ function appendRequestedChange(lines: string[], value: unknown): void {
 	if (!operation) return;
 	lines.push('', 'Requested change:');
 	switch (operation) {
+		case 'create-file':
+			lines.push(`- Create a File Task with title: ${safe(record(spec.item).displayTitle, DESCRIPTION_LIMIT)}`);
+			break;
+		case 'set-title':
+			lines.push(spec.displayTitle === null
+				? '- Clear the File Task display title and preserve the filename.'
+				: `- Set the File Task display title: ${safe(spec.displayTitle, DESCRIPTION_LIMIT)}. The filename will be preserved.`);
+			break;
 		case 'create': {
 			const items = records(spec.items);
 			lines.push(`- Create ${items.length} task${items.length === 1 ? '' : 's'}`);

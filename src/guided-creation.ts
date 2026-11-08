@@ -4,10 +4,13 @@ import type {
 	CatalogPriorityV1,
 	ContextPackV1,
 	CreateFieldItemV1,
+	CreateTaskItemV1,
 	CreateTaskSpecV1,
 	FieldDescriptorV1,
 	FieldValueTypeV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
+import type { FileTaskTitleCreateSpecV1 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/file-task-titles-v1/contracts';
+import { FILE_TASK_TITLE_BYTE_CAP_V1, fileTaskTitleCreateSpecV1 } from './file-task-title-input';
 import {
 	CONTRACT_LIMITS_V1,
 	utf8ByteLengthV1,
@@ -72,7 +75,7 @@ export type GuidedCreationWizardResultV1 =
 	}
 	| {
 		status: 'ready';
-		intent: GuidedCreationIntentV1;
+		intent: Omit<GuidedCreationIntentV1, 'spec'> & { spec: CreateTaskSpecV1 | FileTaskTitleCreateSpecV1 };
 		summary: string;
 	};
 
@@ -143,23 +146,32 @@ export async function runGuidedCreationWizardV1(options: {
 	port: GuidedCreationPortV1;
 	itemRef: string;
 	initialDescription?: string;
+	allowFileTaskTitle?: boolean;
 }): Promise<GuidedCreationWizardResultV1> {
 	const { model, port } = options;
 	port.write('Create an Operon task\n\n');
 	const description = await askRequiredText(
 		port,
-		'Description',
+		options.allowFileTaskTitle ? 'Description or title' : 'Description',
 		options.initialDescription?.trim() ?? '',
 	);
 	if (description === null) return cancelled();
 
-	const representation = await choose(port, 'Representation', [
-		{ label: 'Inline task', value: 'inline' as const },
-		{ label: 'File Task', value: 'file' as const },
-	], model.policies.creation.defaultToFileTask ? 1 : 0);
-	if (representation === null) return cancelled();
+	const choices: SelectionV1<'inline' | 'file' | 'file-title'>[] = [
+		{ label: 'Inline task', value: 'inline' },
+		{ label: 'File Task', value: 'file' },
+	];
+	if (options.allowFileTaskTitle) choices.push({ label: 'File Task with a display title', value: 'file-title' });
+	const choice = await choose(port, 'Representation', choices, model.policies.creation.defaultToFileTask ? 1 : 0);
+	if (choice === null) return cancelled();
+	const titled = choice === 'file-title';
+	const representation = titled ? 'file' : choice;
+	const text = titled
+		? await askRequiredText(port, 'Title', description, FILE_TASK_TITLE_BYTE_CAP_V1)
+		: description;
+	if (text === null) return cancelled();
 
-	const target = await chooseTarget(port, model, representation);
+	const target = await chooseTarget(port, model, representation, titled);
 	if (target === null) return cancelled();
 
 	const workflow = await chooseWorkflow(port, model, representation === 'file');
@@ -189,26 +201,25 @@ export async function runGuidedCreationWizardV1(options: {
 	const tags = properties.find(property => property.tags)?.tags;
 
 	const templateId = resolveTemplateId(model, representation, target.mode, workflow.pipeline?.id);
-	if (representation === 'file' && templateId === null) {
+	if (representation === 'file' && !titled && templateId === null) {
 		throw new Error('GUIDED_TEMPLATE_UNAVAILABLE');
 	}
 	const resolvedTarget = target.representation === 'file' && templateId
 		? { ...target, templateId }
 		: target;
-	const spec: CreateTaskSpecV1 = {
-		operation: 'create',
-		items: [{
-			itemRef: options.itemRef,
-			description,
-			target: resolvedTarget,
-			fields,
-			...(tags ? { tags } : {}),
-			...(workflow.statusId ? { statusId: workflow.statusId } : {}),
-			...(priority.priorityId ? { priorityId: priority.priorityId } : {}),
-		}],
+	const item: CreateTaskItemV1 = {
+		itemRef: options.itemRef,
+		description: text,
+		target: resolvedTarget,
+		fields,
+		...(tags ? { tags } : {}),
+		...(workflow.statusId ? { statusId: workflow.statusId } : {}),
+		...(priority.priorityId ? { priorityId: priority.priorityId } : {}),
 	};
+	const spec = titled ? fileTaskTitleCreateSpecV1(item) : { operation: 'create' as const, items: [item] };
 	const summary = renderDraftSummary({
-		description,
+		description: text,
+		titled,
 		representation,
 		target: resolvedTarget,
 		workflow: workflow.label,
@@ -246,13 +257,14 @@ async function chooseTarget(
 	port: GuidedCreationPortV1,
 	model: GuidedCreationModelV1,
 	representation: 'inline' | 'file',
+	titled: boolean,
 ): Promise<CreateTaskSpecV1['items'][number]['target'] | null> {
 	const creation = model.policies.creation;
 	const configuredRepresentation = creation.defaultToFileTask ? 'file' : 'inline';
 	const configuredInlineAvailable = representation === configuredRepresentation
 		&& representation === 'inline'
 		&& (creation.inlineTaskSaveMode === 'daily-notes' || creation.inlineTaskSaveMode === 'specific-file');
-	const configuredAvailable = (
+	const configuredAvailable = titled || (
 		representation === configuredRepresentation
 		&& representation === 'file'
 	) || configuredInlineAvailable;
@@ -269,11 +281,13 @@ async function chooseTarget(
 	if (mode === 'configured-default') return { representation, mode };
 	while (true) {
 		const prompt = representation === 'file'
-			? 'Vault-relative File Task path (filename must match the canonical task description): '
+			? titled
+				? 'Exact vault-relative File Task path: '
+				: 'Vault-relative File Task path (filename must match the canonical task description): '
 			: 'Vault-relative path: ';
 		const answer = await port.ask(prompt);
 		if (isCancelledAnswer(answer)) return null;
-		const filePath = answer!.trim().normalize('NFC');
+		const filePath = titled ? answer! : answer!.trim().normalize('NFC');
 		if (isSafeInteractiveText(filePath) && validateVaultRelativePathV1(filePath) === null) {
 			return { representation, mode, filePath };
 		}
@@ -665,11 +679,12 @@ async function askRequiredText(
 	port: GuidedCreationPortV1,
 	label: string,
 	initial: string,
+	byteCap = DESCRIPTION_BYTE_CAP,
 ): Promise<string | null> {
 	if (
 		initial
 		&& initial.length <= DESCRIPTION_CHARACTER_CAP
-		&& utf8ByteLengthV1(initial) <= DESCRIPTION_BYTE_CAP
+		&& utf8ByteLengthV1(initial) <= byteCap
 		&& isSafeInteractiveText(initial)
 	) {
 		port.write(`${label}: ${display(initial, 120)}\n`);
@@ -682,10 +697,10 @@ async function askRequiredText(
 		if (
 			value
 			&& value.length <= DESCRIPTION_CHARACTER_CAP
-			&& utf8ByteLengthV1(value) <= DESCRIPTION_BYTE_CAP
+			&& utf8ByteLengthV1(value) <= byteCap
 			&& isSafeInteractiveText(value)
 		) return value;
-		port.write(`${label} is required, must be at most ${DESCRIPTION_CHARACTER_CAP} characters, and cannot contain terminal controls or bidi formatting.\n`);
+		port.write(`${label} is required, must be at most ${byteCap} UTF-8 bytes, and cannot contain terminal controls or bidi formatting.\n`);
 	}
 }
 
@@ -732,6 +747,7 @@ async function askYesNo(
 
 function renderDraftSummary(input: {
 	description: string;
+	titled: boolean;
 	representation: 'inline' | 'file';
 	target: CreateTaskSpecV1['items'][number]['target'];
 	workflow: string;
@@ -745,7 +761,7 @@ function renderDraftSummary(input: {
 	const lines = [
 		'',
 		'Task draft',
-		`Description: ${display(input.description, 120)}`,
+		`${input.titled ? 'Title' : 'Description'}: ${display(input.description, 120)}`,
 		`Representation: ${input.representation === 'inline' ? 'Inline' : 'File'}`,
 		`Target: ${display(target, 120)}`,
 		`Workflow: ${display(input.workflow, 120)}`,

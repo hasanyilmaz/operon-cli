@@ -16,6 +16,7 @@ import {
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/primitives';
 import { OPERON_CLI_PACKAGE_NAME } from './package-identity';
 import { TASK_WORKFLOW_CAPABILITY_IDS_V1 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
+import { FILE_TASK_TITLES_CAPABILITIES_V1, FILE_TASK_TITLES_EXTENSION_V1 } from '../vendor/operon-plugin-v1/src/agent-runtime/extensions/file-task-titles-v1/contracts';
 
 export const OPERON_CLI_MANIFEST_VERSION_V1 = 1 as const;
 export const COMPACT_UPDATE_FEATURES_V1 = Object.freeze([
@@ -402,6 +403,15 @@ export function createCliManifestBaseV1(version: string) {
 				baseSchemaManifestAggregateSha256: '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa',
 				aggregateSha256: '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc',
 				capabilities: [...TASK_WORKFLOW_CAPABILITY_IDS_V1],
+			},
+			fileTaskTitlesV1: {
+				extensionId: FILE_TASK_TITLES_EXTENSION_V1,
+				contractVersion: 1,
+				pluginCheckpointCommit: 'a04545858ae975123a4c015efb06827b3a6a1f47',
+				baseContractDigest: '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b',
+				baseSchemaManifestAggregateSha256: '43ca9fa184f9a2433a3583446ab19557e7c81b3e3b0f3f57be95a95ee3859506',
+				aggregateSha256: '44f43f3bf9426172bcc93fd25db5dc34a14c6be2075403ef3f0e0b82ff67b217',
+				capabilities: [...FILE_TASK_TITLES_CAPABILITIES_V1],
 			},
 		},
 		commands: {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdirSync, renameSync } from 'node:fs';
+import { mkdirSync, renameSync, writeFileSync } from 'node:fs';
 import {
 	mkdir,
 	mkdtemp,
@@ -38,6 +38,16 @@ import type {
 	TaskWorkflowApplyRequestV1,
 	TaskWorkflowPreviewRequestV1,
 } from '../../vendor/operon-plugin-v1/src/agent-runtime/extensions/task-workflows-v1/contracts';
+import {
+	FILE_TASK_TITLES_CAPABILITIES_V1,
+	type FileTaskTitlesApplyRequestV1,
+} from '../../vendor/operon-plugin-v1/src/agent-runtime/extensions/file-task-titles-v1/contracts';
+import {
+	decodeFileTaskTitlesApplyV1,
+	decodeFileTaskTitlesPreviewV1,
+	fileTaskTitlesExecutionRequestV1,
+	sealFileTaskTitlesPlanV1,
+} from '../../vendor/operon-plugin-v1/src/agent-runtime/extensions/file-task-titles-v1/decode';
 import type {
 	RuntimeCliInvocationV1,
 	RuntimeCliResultEnvelopeV1,
@@ -49,6 +59,7 @@ import {
 	decodeOperonCatalogV1,
 	decodeTaskContextV1,
 	sha256HexV1,
+	structuredErrorV1,
 	toJsonValueV1,
 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
 import type {
@@ -167,6 +178,7 @@ function createHarnessWindowsBrokerV1(): WindowsBrokerClientPortV1 {
 async function run(): Promise<void> {
 	await testFileTaskTitleReadContracts();
 	await testFileTaskTitleReadCommands();
+	await testFileTaskTitleWriteCommands();
 	await testGuidedAdmissionMatrix();
 	await testLegacyTypedDispatch();
 	await testCommandPreviewDeclineAndApply();
@@ -314,6 +326,291 @@ function fileTaskForTitleRead(): TaskContextV1 {
 		representation: 'file',
 		locator: { representation: 'file', filePath: 'Tasks/quarterly-review.md' },
 	};
+}
+
+async function testFileTaskTitleWriteCommands(): Promise<void> {
+	const root = await createHarnessRoot('file-task-title-writes');
+	try {
+		const task = fileTaskForTitleRead();
+		const sourcePath = path.join(root.vault, task.locator.filePath);
+		await mkdir(path.dirname(sourcePath), { recursive: true });
+		await writeFile(sourcePath, 'Original File Task\n');
+		const invocations: RuntimeCliInvocationV1[] = [];
+		const advertised = new Set<string>(FILE_TASK_TITLES_CAPABILITIES_V1);
+		const receipts = new Map<string, FileTaskTitlesApplyRequestV1>();
+		let writes = 0;
+		let configuredPath = 'Tasks/Review Q3 Plan.md';
+		let previewFault: 'wrong-path' | 'tampered' | 'expired' | undefined;
+		let applyFault: 'lost' | 'wrong-receipt' | 'compensated' | undefined;
+		const parentPath = 'Tasks/z-parent.md';
+		let refreshParentMetadata = false;
+		const ports = {
+			configRoot: root.config,
+			requestRoot: root.requests,
+			runProcess: runtimeFixtureRunner(root.requests, invocations, invocation => {
+				if (invocation.command === 'capabilities') {
+					return successEnvelope(invocation, [
+						'context.build', 'tasks.finder', 'tasks.query', 'tasks.read', ...advertised,
+					].map(id => ({ id, availability: 'available', stability: 'stable' })));
+				}
+				if (invocation.command === 'context.build') {
+					return successEnvelope(invocation, compactCreationContext(invocation.requestId));
+				}
+				if (invocation.command === 'tasks.finder') {
+					const result = taskFinderResult(invocation.requestId);
+					assert.ok(result.ok);
+					return successEnvelope(invocation, { ...result, rows: [{ kind: 'task', task, score: 1 }] });
+				}
+				if (invocation.command === 'task.get' || invocation.command === 'tasks.query') {
+					return compactRelationshipResponse(invocation, false, task);
+				}
+				if (invocation.command === 'mutation.preview') {
+					const decoded = decodeFileTaskTitlesPreviewV1(invocation.request);
+					assert.ok(decoded.ok, JSON.stringify(decoded));
+					const request = decoded.value;
+					const execution = fileTaskTitlesExecutionRequestV1(request);
+					let inner: SealedMutationPlanV1;
+					if (request.spec.operation === 'create-file') {
+						const target = request.spec.item.target;
+						const filePath = target.mode === 'exact-path' ? target.filePath : configuredPath;
+						inner = creationPlan(execution, filePath);
+					} else {
+						if (previewFault === 'wrong-path' && execution.target) {
+							execution.target = { ...execution.target, locator: { representation: 'file', filePath: 'Tasks/Wrong.md' } };
+						}
+						inner = updatePlan(execution);
+						if (refreshParentMetadata) {
+							const parent = { resourceKind: 'task-source' as const, resourceKey: parentPath };
+							inner.affectedResources.push({ ...parent, revision: 'f'.repeat(64) });
+							inner.predictedEffects.push({ ...parent, action: 'update', summary: 'Refresh parent task metadata.' });
+							inner.atomicGroups.push({ groupId: `task-source:${parentPath}`, order: 1, resources: [parent] });
+							inner.planHash = computeSealedMutationPlanHashV1(inner);
+						}
+					}
+					if (previewFault === 'expired') {
+						inner.createdAt = '2026-01-01T00:00:00.000Z';
+						inner.expiresAt = '2026-01-01T00:05:00.000Z';
+						inner.planHash = computeSealedMutationPlanHashV1(inner);
+					}
+					const plan = sealFileTaskTitlesPlanV1(inner, request.capability, request.idempotencyKey, request.spec);
+					if (previewFault === 'tampered') plan.planHash = 'a'.repeat(64);
+					return successEnvelope(invocation, {
+						contractVersion: 1, requestId: invocation.requestId,
+						kind: 'mutation-preview-result', ok: true, warnings: [], plan,
+					});
+				}
+				assert.equal(invocation.command, 'mutation.apply');
+				const decoded = decodeFileTaskTitlesApplyV1(invocation.request);
+				assert.ok(decoded.ok, JSON.stringify(decoded));
+				const request = decoded.value;
+				const applied = appliedResult(request, invocation.expectedVaultSha256);
+				const prior = receipts.get(request.plan.planHash);
+				if (prior) {
+					assert.deepEqual(request, prior);
+					return successEnvelope(invocation, {
+						...applied, status: 'already-applied', groupResults: [],
+						receipt: { ...applied.receipt, terminalOutcome: 'already-applied' },
+						postflight: { status: 'receipt-replay' },
+					});
+				}
+				if (applyFault === 'compensated') {
+					return successEnvelope(invocation, {
+						contractVersion: 1, requestId: request.requestId, kind: 'mutation-result',
+						status: 'failed', mutationMayHaveApplied: false, retryAllowed: false,
+						recoveryOutcome: 'compensated', groupResults: [],
+						error: structuredErrorV1('internal-error', 'Changes rolled back.'),
+					});
+				}
+				const target = request.plan.targets[0];
+				const spec = request.plan.spec;
+				const title = spec.operation === 'create-file' ? spec.item.displayTitle : spec.displayTitle;
+				assert.ok(target.locator && target.operonId);
+				const file = path.join(root.vault, target.locator.filePath);
+				mkdirSync(path.dirname(file), { recursive: true });
+				writeFileSync(file, `---\noperonId: ${target.operonId}\n${title === null ? '' : `title: ${JSON.stringify(title)}\n`}---\n`);
+				writes += 1;
+				receipts.set(request.plan.planHash, request);
+				if (applyFault === 'lost') {
+					return {
+						exitCode: 0, signal: null, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0),
+						totalMs: 1, timedOut: false, overflow: false,
+					};
+				}
+				if (applyFault === 'wrong-receipt' && applied.receipt) applied.receipt.targetDigest = 'a'.repeat(64);
+				return successEnvelope(invocation, applied);
+			}),
+		};
+		const run = (args: string[], extra: PublicCommandPortsV1 = {}) => runPublicCommandLineV1(args, { ...ports, ...extra });
+		const targetArgs = ['--vault', root.vault];
+		const previewRef = (outcome: Awaited<ReturnType<typeof run>>) => {
+			assert.equal(outcome.exitCode, 0, outcome.human);
+			assert.ok(outcome.envelope.kind === 'cli-result' && outcome.envelope.client?.planRef, outcome.human);
+			return outcome.envelope.client.planRef;
+		};
+		const typed = (command: string, spec: Record<string, unknown>, exactTarget?: unknown) => run([
+			'task', command, '--input', '-', ...targetArgs, '--json',
+		], {
+			input: Buffer.from(JSON.stringify({
+				contractVersion: 1, kind: 'mutation-intent', spec,
+				...(exactTarget ? { target: exactTarget } : {}),
+			})),
+		});
+		const update = ['task', 'update', '--id', task.identity.operonId];
+		const create = ['task', 'create', 'file', '--title', 'Review Q3 Plan', 'note::Ready'];
+
+		for (const filePath of ['Tasks/Review Q3 Plan.md', 'Tasks/review-q3-plan.md', 'Tasks/review_q3_plan.md']) {
+			configuredPath = filePath;
+			const ref = previewRef(await run([...create, '--preview-only', ...targetArgs, '--json']));
+			const plan = readMutationPlanV1(ref, root.config).plan;
+			assert.equal(plan.capability, 'tasks.file.create.preview');
+			assert.equal(plan.createEffects?.[0].locator.filePath, filePath);
+			assert.equal(plan.spec.operation, 'create-file');
+			assert.ok(plan.spec.operation === 'create-file');
+			assert.deepEqual(plan.spec.item.target, { mode: 'configured-default', representation: 'file' });
+			assert.deepEqual(plan.spec.item.fields, [{ kind: 'text', field: 'note', value: 'Ready' }]);
+		}
+		assert.equal(writes, 0);
+		const exact = 'Tasks/Exact Name.md';
+		const createIntent = {
+			operation: 'create-file', item: {
+				itemRef: 'exact-title', displayTitle: 'Independent title',
+				target: { mode: 'exact-path', representation: 'file', filePath: exact }, fields: [],
+			},
+		};
+		const exactRef = previewRef(await typed('create', createIntent));
+		assert.equal(readMutationPlanV1(exactRef, root.config).plan.createEffects?.[0].locator.filePath, exact);
+		const interactive = scriptedPort(['3', '2', 'Tasks/Guided Exact.md', '', '', '', '', '']);
+		const guidedRef = previewRef(await run(['task', 'create', 'Guided title', '--preview-only', ...targetArgs], { interactive: interactive.port }));
+		assert.match(interactive.output(), /File Task with a display title/u);
+		assert.equal(readMutationPlanV1(guidedRef, root.config).plan.createEffects?.[0].locator.filePath, 'Tasks/Guided Exact.md');
+		assert.equal(writes, 0);
+		assert.match((await run([...create, ...targetArgs])).human, /Status: applied/u);
+		assert.match(await readFile(path.join(root.vault, configuredPath), 'utf8'), /title: "Review Q3 Plan"/u);
+
+		const exactTarget = { operonId: task.identity.operonId, locator: task.locator };
+		const multiline = 'First line\nSecond line';
+		const edit = { operation: 'set-title', displayTitle: multiline };
+		const editRef = previewRef(await typed('update', edit, exactTarget));
+		const editPlan = readMutationPlanV1(editRef, root.config).plan;
+		assert.deepEqual(editPlan.spec, edit);
+		assert.equal(editPlan.targets[0].operonId, exactTarget.operonId);
+		assert.deepEqual(editPlan.targets[0].locator, exactTarget.locator);
+		refreshParentMetadata = true;
+		const parentRef = previewRef(await typed('update', edit, exactTarget));
+		assert.equal(readMutationPlanV1(parentRef, root.config).plan.predictedEffects[1].resourceKey, parentPath);
+		refreshParentMetadata = false;
+		const schemaRoot = path.join(process.cwd(), 'schemas', 'v1');
+		const ajv = new Ajv2020({ strict: false, logger: false });
+		for (const file of [
+			...(await readdir(schemaRoot)).filter(name => name.endsWith('.schema.json')),
+			'extensions/file-task-titles-v1/mutation.schema.json',
+		]) {
+			ajv.addSchema(JSON.parse(await readFile(path.join(schemaRoot, file), 'utf8')));
+		}
+		const validateIntent = ajv.getSchema('urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/mutationIntent');
+		const validatePlan = ajv.getSchema('urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/planShowResult');
+		assert.ok(validateIntent && validatePlan);
+		const baseIntent = { contractVersion: 1, kind: 'mutation-intent' };
+		assert.equal(validateIntent({ ...baseIntent, spec: createIntent }), true, JSON.stringify(validateIntent.errors));
+		assert.equal(validateIntent({ ...baseIntent, spec: edit, target: exactTarget }), true, JSON.stringify(validateIntent.errors));
+		assert.equal(validateIntent({ ...baseIntent, spec: edit }), false);
+		assert.equal(validateIntent({ ...baseIntent, spec: createIntent, target: exactTarget }), false);
+		for (const ref of [exactRef, editRef]) {
+			const show = await run(['plan', 'show', ref, '--json']);
+			assert.equal(show.exitCode, 0, show.human);
+			assert.ok(show.envelope.ok);
+			assert.equal(validatePlan(show.envelope.result), true, JSON.stringify(validatePlan.errors));
+			assert.doesNotMatch(JSON.stringify(show.envelope.result), /executionPlan|idempotencyKey/u);
+		}
+		const set = scriptedPort(['', '1', '2', 'Guided title change', '', 'n']);
+		const setRef = previewRef(await run(['task', 'update', ...targetArgs], { interactive: set.port }));
+		assert.deepEqual(readMutationPlanV1(setRef, root.config).plan.spec, { operation: 'set-title', displayTitle: 'Guided title change' });
+		const clear = scriptedPort(['', '1', '3', '', 'n']);
+		const clearRef = previewRef(await run(['task', 'update', ...targetArgs], { interactive: clear.port }));
+		assert.deepEqual(readMutationPlanV1(clearRef, root.config).plan.spec, { operation: 'set-title', displayTitle: null });
+
+		const maxTitle = 'é'.repeat(4096);
+		previewRef(await run([...update, '--title', maxTitle, '--preview-only', ...targetArgs]));
+		previewRef(await typed('create', { ...createIntent, item: { ...createIntent.item, displayTitle: maxTitle } }));
+		const readCount = invocations.length;
+		for (const args of [
+			[...update, '--title', maxTitle + 'x'],
+			[...update, '--title', '   '],
+			[...update, '--title', 'Conflicting', '--clear-title'],
+			[...update, '--clear-title', 'note::Other'],
+			['task', 'create', 'inline', '--title', 'Invalid'],
+			['task', 'create', 'file', '--title', maxTitle + 'x'],
+		]) assert.equal((await run([...args, ...targetArgs])).exitCode, 2);
+		assert.equal(invocations.length, readCount);
+		assert.equal((await typed('update', edit, {
+			...exactTarget, locator: { representation: 'inline', filePath: 'Tasks.md', lineNumber: 1 },
+		})).exitCode, 2);
+
+		advertised.delete('tasks.file.title.preview');
+		const deniedPreview = await run([...update, '--clear-title', '--preview-only', ...targetArgs]);
+		assert.match(deniedPreview.human, /capability.*unavailable/u);
+		advertised.add('tasks.file.title.preview');
+		advertised.delete('tasks.file.title.apply');
+		const deniedApply = await run(['plan', 'apply', editRef, '--json']);
+		assert.match(deniedApply.human, /capability.*unavailable/u);
+		assert.match(deniedApply.human, new RegExp(editRef, 'u'));
+		assert.equal(readMutationPlanV1(editRef, root.config).applyRequest, undefined);
+		advertised.add('tasks.file.title.apply');
+		for (const fault of ['wrong-path', 'tampered'] as const) {
+			previewFault = fault;
+			const refused = await typed('update', edit, exactTarget);
+			assert.notEqual(refused.exitCode, 0);
+			assert.ok(refused.envelope.kind !== 'cli-result' || !refused.envelope.client?.planRef);
+		}
+		previewFault = 'expired';
+		const expiredRef = previewRef(await typed('update', edit, exactTarget));
+		assert.notEqual((await run(['plan', 'apply', expiredRef])).exitCode, 0);
+		previewFault = undefined;
+		assert.equal(writes, 1);
+		assert.equal(await readFile(sourcePath, 'utf8'), 'Original File Task\n');
+
+		for (const fault of ['lost', 'wrong-receipt'] as const) {
+			const ref = previewRef(await typed('update', edit, exactTarget));
+			applyFault = fault;
+			const before: number = writes;
+			const uncertain = await run(['plan', 'apply', ref, '--json']);
+			assert.notEqual(uncertain.exitCode, 0);
+			assert.equal(writes, before + 1);
+			assert.ok(readMutationPlanV1(ref, root.config, { allowExpired: true }).applyRequest);
+			if (fault === 'lost') {
+				advertised.delete('tasks.file.title.apply');
+				assert.notEqual((await run(['plan', 'recover', ref, '--json'])).exitCode, 0);
+				assert.equal(writes, before + 1);
+				advertised.add('tasks.file.title.apply');
+			}
+			const recovered = await run(['plan', 'recover', ref]);
+			assert.equal(recovered.exitCode, 0, recovered.human);
+			assert.match(recovered.human, /Status: already-applied/u);
+			assert.equal(writes, before + 1);
+		}
+		assert.match(await readFile(sourcePath, 'utf8'), /operonId: abc1234\ntitle: "First line\\nSecond line"/u);
+		assert.deepEqual((await readdir(path.dirname(sourcePath))).sort(), [path.basename(sourcePath), path.basename(configuredPath)].sort());
+
+		applyFault = 'lost';
+		const beforeCreateRecovery: number = writes;
+		assert.notEqual((await run(['plan', 'apply', exactRef])).exitCode, 0);
+		assert.match((await run(['plan', 'recover', exactRef])).human, /Status: already-applied/u);
+		assert.equal(writes, beforeCreateRecovery + 1);
+		assert.match(await readFile(path.join(root.vault, exact), 'utf8'), /title: "Independent title"/u);
+
+		applyFault = 'compensated';
+		const compensated = await run(['plan', 'apply', clearRef]);
+		assert.notEqual(compensated.exitCode, 0);
+		assert.match(compensated.human, /changes were rolled back/u);
+		assert.throws(() => readMutationPlanV1(clearRef, root.config), { code: 'ENOENT' });
+		applyFault = undefined;
+		const cleared = await run(['task', 'update', '--description', task.description, '--clear-title', ...targetArgs]);
+		assert.equal(cleared.exitCode, 0, cleared.human);
+		assert.equal(await readFile(sourcePath, 'utf8'), '---\noperonId: abc1234\n---\n');
+		assert.equal(task.description, 'quarterly-review');
+	} finally {
+		await root.cleanup();
+	}
 }
 
 async function testTaskWorkflowCommandRouting(): Promise<void> {
@@ -4139,7 +4436,7 @@ function runtimeCapabilityFailureEnvelope(
 	) as unknown as RuntimeCliResultEnvelopeV1;
 }
 
-function successEnvelope(invocation: CliInvocationV1, result: unknown): CliResultEnvelopeV1 {
+function successEnvelope(invocation: Pick<RuntimeCliInvocationV1, 'requestId' | 'command'>, result: unknown): CliResultEnvelopeV1 {
 	return {
 		contractVersion: 1,
 		kind: 'cli-result',
@@ -4484,17 +4781,17 @@ function creationPreviewResult(request: MutationPreviewRequestV1, withWarning = 
 	};
 }
 
-function creationPlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
+function creationPlan(request: MutationPreviewRequestV1, filePath?: string): SealedMutationPlanV1 {
 	if (request.spec.operation !== 'create') {
 		throw new Error('Expected a creation preview.');
 	}
 	const items = request.spec.items;
+	const sourcePath = filePath ?? 'Tasks.md';
+	const sourceRevision = filePath === undefined ? 'c'.repeat(64) : 'absent';
 	const effects = items.map((item, index) => {
-		const locator = {
-			representation: 'inline' as const,
-			filePath: 'Tasks.md',
-			lineNumber: index + 1,
-		};
+		const locator = filePath === undefined
+			? { representation: 'inline' as const, filePath: sourcePath, lineNumber: index + 1 }
+			: { representation: 'file' as const, filePath: sourcePath };
 		return {
 			item,
 			locator,
@@ -4512,7 +4809,7 @@ function creationPlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
 		planId: `guided-${randomUUID()}`,
 		planHash: '',
 		clientInstanceId: request.clientInstanceId,
-		correlationId: request.requestId,
+		correlationId: request.correlationId ?? request.requestId,
 		idempotencyKeyHash: createHash('sha256').update(request.idempotencyKey).digest('hex'),
 		receiptTargetDigest: '',
 		capability: request.capability,
@@ -4523,19 +4820,19 @@ function creationPlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
 		contextRevision: revision(),
 		affectedResources: [{
 			resourceKind: 'task-source',
-			resourceKey: 'Tasks.md',
-			revision: 'c'.repeat(64),
+			resourceKey: sourcePath,
+			revision: sourceRevision,
 		}],
 		atomicGroups: [{
-			groupId: 'task-source:Tasks.md',
+			groupId: `task-source:${sourcePath}`,
 			order: 0,
-			resources: [{ resourceKind: 'task-source', resourceKey: 'Tasks.md' }],
+			resources: [{ resourceKind: 'task-source', resourceKey: sourcePath }],
 		}],
 		predictedEffects: [{
 			resourceKind: 'task-source',
-			resourceKey: 'Tasks.md',
-			action: 'update',
-			summary: 'Create one exact inline task.',
+			resourceKey: sourcePath,
+			action: filePath === undefined ? 'update' : 'create',
+			summary: 'Create the exact task.',
 		}],
 		riskLevel: 'routine',
 		requiresConfirmation: false,
@@ -4546,9 +4843,12 @@ function creationPlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
 			itemRef: item.itemRef,
 			operonId,
 			locator,
-			targetBeforeDigest: 'c'.repeat(64),
+			...(filePath === undefined ? { targetBeforeDigest: 'c'.repeat(64) } : { expectedAbsence: true as const }),
 			renderedTaskDigest: 'd'.repeat(64),
 			plannedSourceDigest: 'e'.repeat(64),
+			...(item.target.representation === 'file' && item.target.templateId
+				? { templateId: item.target.templateId, templateDigest: 'f'.repeat(64) }
+				: {}),
 			...(item.parent?.kind === 'existing'
 				? { resolvedParentOperonId: item.parent.operonId }
 				: {}),
@@ -4633,6 +4933,7 @@ function updatePlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
 					}
 					: request.spec;
 	const targetDigest = createHash('sha256').update(JSON.stringify(request.target)).digest('hex');
+	const sourcePath = request.target?.locator.representation === 'file' ? request.target.locator.filePath : 'Tasks.md';
 	const createdAt = new Date();
 	const targets = [{
 		operonId: request.target?.operonId,
@@ -4644,7 +4945,7 @@ function updatePlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
 		planId: `guided-${randomUUID()}`,
 		planHash: '',
 		clientInstanceId: request.clientInstanceId,
-		correlationId: request.requestId,
+		correlationId: request.correlationId ?? request.requestId,
 		idempotencyKeyHash: createHash('sha256').update(request.idempotencyKey).digest('hex'),
 		receiptTargetDigest: '',
 		capability: request.capability,
@@ -4663,23 +4964,23 @@ function updatePlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
 			}]
 			: [{
 				resourceKind: 'task-source',
-				resourceKey: 'Tasks.md',
+				resourceKey: sourcePath,
 				revision: 'c'.repeat(64),
 			}],
 		atomicGroups: [{
 			groupId: request.spec.operation === 'set-pinned'
 				? `pinned:${request.target?.operonId ?? ''}`
-				: 'task-source:Tasks.md',
+				: `task-source:${sourcePath}`,
 			order: 0,
 			resources: request.spec.operation === 'set-pinned'
 				? [{ resourceKind: 'pinned', resourceKey: request.target?.operonId ?? '' }]
-				: [{ resourceKind: 'task-source', resourceKey: 'Tasks.md' }],
+				: [{ resourceKind: 'task-source', resourceKey: sourcePath }],
 		}],
 		predictedEffects: [{
 			resourceKind: request.spec.operation === 'set-pinned' ? 'pinned' : 'task-source',
 			resourceKey: request.spec.operation === 'set-pinned'
 				? request.target?.operonId ?? ''
-				: 'Tasks.md',
+				: sourcePath,
 			action: request.spec.operation === 'set-pinned' ? 'state-change' : 'update',
 			summary: `Apply exact ${request.spec.operation} task mutation.`,
 		}],
@@ -4701,7 +5002,7 @@ function updatePlan(request: MutationPreviewRequestV1): SealedMutationPlanV1 {
 }
 
 function appliedResult(
-	request: MutationApplyRequestV1,
+	request: Pick<MutationApplyRequestV1 | FileTaskTitlesApplyRequestV1, 'plan' | 'requestId'>,
 	vaultIdentityHash: string,
 ): MutationResultV1 {
 	const now = new Date().toISOString();

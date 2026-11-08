@@ -23,6 +23,7 @@ const groups = {
 	runtimeSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/v1/'))),
 	taskWorkflowExtensionSource: aggregate(files.filter(item => item.path.startsWith('src/agent-runtime/extensions/task-workflows-v1/'))),
 	taskWorkflowExtensionSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/extensions/task-workflows-v1/'))),
+	fileTaskTitlesExtensionSource: aggregate(files.filter(item => item.path.startsWith('src/agent-runtime/extensions/file-task-titles-v1/'))),
 	fileTaskTitlesExtensionSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/extensions/file-task-titles-v1/'))),
 	taskCreationExtensionSchemas: aggregate(files.filter(item => item.path.startsWith('contracts/agent-runtime/extensions/task-creation-v1/'))),
 	extensionReferences: aggregate(files.filter(item => item.path.startsWith('reference/'))),
