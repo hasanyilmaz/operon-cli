@@ -1090,12 +1090,12 @@
     {
       "file": "catalog.schema.json",
       "id": "urn:operon:schema:runtime:v1:catalog.schema.json",
-      "sha256": "42da56915287a4f2aaf527dbed79143346e1364c6aa93cc2f34c92da956ba5fb"
+      "sha256": "7d00360d52ff80cef94b6319284cbb61b20f14e9d4bb3ae6c8a19ad3d47242e3"
     },
     {
       "file": "cli-manifest.schema.json",
       "id": "urn:operon:schema:cli:v1:cli-manifest.schema.json",
-      "sha256": "d0d3659661376e790cdb4c6f8130a2d3d9705bca6b5d96e4c8a292029baf88a6"
+      "sha256": "6ab863318925d5c38538eab87d8915da8f326ca4b0d905e879b1301f096964dc"
     },
     {
       "file": "cli.schema.json",
@@ -1115,12 +1115,45 @@
     {
       "file": "context.schema.json",
       "id": "urn:operon:schema:runtime:v1:context.schema.json",
-      "sha256": "528a1b6412acdbc6df004cdcb5a22e9bc83d0778ae1408f804664a98912418fc"
+      "sha256": "79ff85ff7f078b063e3facaed812af0f4d7589d87f34a82ec9757b1e39931ef3"
     },
     {
       "file": "developer-api.schema.json",
       "id": "urn:operon:schema:runtime:v1:developer-api.schema.json",
       "sha256": "27c099c472830cc87d69ce59706b10508872d5a32d9e148a6704aa46f2a8c4dc"
+    },
+    {
+      "file": "extensions/file-task-titles-v1/capabilities.schema.json",
+      "id": "urn:operon:schema:runtime:v1:extension:file-task-titles:capabilities",
+      "sha256": "5a40d088073f4ee1f1fd2d7db2e37d3db356cc3db852b1d895b5bc65417295fb"
+    },
+    {
+      "file": "extensions/file-task-titles-v1/cli.schema.json",
+      "id": "urn:operon:schema:runtime:v1:extension:file-task-titles:cli",
+      "sha256": "ae61d483cbb715bc2c6d0de2aa29fe615219288421f8ee7403bbd726bc494e3e"
+    },
+    {
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "id": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518"
+    },
+    {
+      "file": "extensions/file-task-titles-v1/extension-manifest.json",
+      "sha256": "c79d8d66e70ad808c424d782b3bbd7694fb341749013eb60f4c44f543e8dd029"
+    },
+    {
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "id": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d"
+    },
+    {
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "id": "urn:operon:schema:runtime:v1:extension:task-creation:creation",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e"
+    },
+    {
+      "file": "extensions/task-creation-v1/extension-manifest.json",
+      "sha256": "4db79280bd0b8c54e4183c2d0a278615ffe92070b79f801fa4f77209355d227f"
     },
     {
       "file": "extensions/task-workflows-v1/capabilities.schema.json",
@@ -1173,7 +1206,7 @@
     },
     {
       "file": "schema-manifest.json",
-      "sha256": "67e1de07ca30a347065d3cdf43786d02d112b80ca2a5d244753cf33544b67e06"
+      "sha256": "7921b39de448a60f088c637d01ba4d9c6a274aebb31a263b15b3119739016a1b"
     },
     {
       "file": "schema-manifest.schema.json",
@@ -1210,7 +1243,7 @@
       "schemaId": "catalog-request",
       "ref": "urn:operon:schema:runtime:v1:catalog.schema.json#/$defs/request",
       "file": "catalog.schema.json",
-      "sha256": "42da56915287a4f2aaf527dbed79143346e1364c6aa93cc2f34c92da956ba5fb",
+      "sha256": "7d00360d52ff80cef94b6319284cbb61b20f14e9d4bb3ae6c8a19ad3d47242e3",
       "stability": "stable"
     },
     {
@@ -1361,6 +1394,188 @@
       "stability": "stable"
     },
     {
+      "schemaId": "file-task-titles-capabilities-capabilityId",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:capabilities#/$defs/capabilityId",
+      "file": "extensions/file-task-titles-v1/capabilities.schema.json",
+      "sha256": "5a40d088073f4ee1f1fd2d7db2e37d3db356cc3db852b1d895b5bc65417295fb",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-capabilities-capabilityRegistry",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:capabilities#/$defs/capabilityRegistry",
+      "file": "extensions/file-task-titles-v1/capabilities.schema.json",
+      "sha256": "5a40d088073f4ee1f1fd2d7db2e37d3db356cc3db852b1d895b5bc65417295fb",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-cli-invocation",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:cli#/$defs/invocation",
+      "file": "extensions/file-task-titles-v1/cli.schema.json",
+      "sha256": "ae61d483cbb715bc2c6d0de2aa29fe615219288421f8ee7403bbd726bc494e3e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-cli-result",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:cli#/$defs/result",
+      "file": "extensions/file-task-titles-v1/cli.schema.json",
+      "sha256": "ae61d483cbb715bc2c6d0de2aa29fe615219288421f8ee7403bbd726bc494e3e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-accessRequest",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/accessRequest",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-applyInput",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/applyInput",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-executionResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/executionResult",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-pendingRecoveriesResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/pendingRecoveriesResult",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-pendingRecovery",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/pendingRecovery",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-planHandle",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/planHandle",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-previewIntent",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/previewIntent",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-previewResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/previewResult",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-receipt",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/receipt",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-recoverInput",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/recoverInput",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-developer-api-recovery",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:developer-api#/$defs/recovery",
+      "file": "extensions/file-task-titles-v1/developer-api.schema.json",
+      "sha256": "67dd20202820fa7ff5a3064062bdf4ac129b28f00c88eb3e5162bde7afa63518",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-applyRequest",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/applyRequest",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-continuation",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/continuation",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-createSealedPlan",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/createSealedPlan",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-createSpec",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/createSpec",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-editSpec",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/editSpec",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-mutationResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/mutationResult",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-previewRequest",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/previewRequest",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-previewResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/previewResult",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-receipt",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/receipt",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-sealedPlan",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/sealedPlan",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "file-task-titles-mutation-titleExecutionPlan",
+      "ref": "urn:operon:schema:runtime:v1:extension:file-task-titles:mutation#/$defs/titleExecutionPlan",
+      "file": "extensions/file-task-titles-v1/mutation.schema.json",
+      "sha256": "4a52d53349bce75e956cbbe4fd8d8b97d815f63ba2bce25865fd511add30df2d",
+      "stability": "stable"
+    },
+    {
       "schemaId": "manifest-result",
       "ref": "urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/manifestResult",
       "file": "operon-cli-local.schema.json",
@@ -1420,7 +1635,7 @@
       "schemaId": "operon-catalog",
       "ref": "urn:operon:schema:runtime:v1:catalog.schema.json#/$defs/result",
       "file": "catalog.schema.json",
-      "sha256": "42da56915287a4f2aaf527dbed79143346e1364c6aa93cc2f34c92da956ba5fb",
+      "sha256": "7d00360d52ff80cef94b6319284cbb61b20f14e9d4bb3ae6c8a19ad3d47242e3",
       "stability": "stable"
     },
     {
@@ -1616,7 +1831,7 @@
       "schemaId": "task-context",
       "ref": "urn:operon:schema:runtime:v1:context.schema.json#/$defs/taskContext",
       "file": "context.schema.json",
-      "sha256": "528a1b6412acdbc6df004cdcb5a22e9bc83d0778ae1408f804664a98912418fc",
+      "sha256": "79ff85ff7f078b063e3facaed812af0f4d7589d87f34a82ec9757b1e39931ef3",
       "stability": "stable"
     },
     {
@@ -1645,6 +1860,174 @@
       "ref": "urn:operon:schema:runtime:v1:extension:task-workflows:mutation#/$defs/periodicNoteCreateTarget",
       "file": "extensions/task-workflows-v1/mutation.schema.json",
       "sha256": "0aecb8dfe6c85ce3291f5e793a60808c3e012b73741c8463fd8456a5898b34de",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-applyRequest",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/applyRequest",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-cliInvocation",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/cliInvocation",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-cliResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/cliResult",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-createSpec",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/createSpec",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerAccessRequest",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerAccessRequest",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerApplyInput",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerApplyInput",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerExecutionResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerExecutionResult",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerPendingRecoveriesResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerPendingRecoveriesResult",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerPendingRecovery",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerPendingRecovery",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerPlanHandle",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerPlanHandle",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerPreviewIntent",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerPreviewIntent",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerPreviewResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerPreviewResult",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerReceipt",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerReceipt",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerRecoverInput",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerRecoverInput",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-developerRecovery",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/developerRecovery",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-mutationResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/mutationResult",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-policy",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/policy",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-policyRequest",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/policyRequest",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-policyResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/policyResult",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-previewRequest",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/previewRequest",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-previewResult",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/previewResult",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-sealedPlan",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/sealedPlan",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-target",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/target",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
+      "stability": "stable"
+    },
+    {
+      "schemaId": "task-creation-template",
+      "ref": "urn:operon:schema:runtime:v1:extension:task-creation:creation#/$defs/template",
+      "file": "extensions/task-creation-v1/creation.schema.json",
+      "sha256": "3dfc31d32c7700f6248908ccc00fcb2384b3fad3abeba88fe80a6db651c0698e",
       "stability": "stable"
     },
     {
@@ -1830,5 +2213,5 @@
       "stability": "stable"
     }
   ],
-  "contractDigest": "5f54a0ff6deff03fabcc5750cb089a4ace34fbdd89250d5e37a555f5de70d4b8"
+  "contractDigest": "bda87d1b3d231fbff11f9d7ac88caf2de52b2205c843e029b01c9f5838e09f03"
 }

@@ -129,6 +129,9 @@ export interface FileTaskTemplateCandidateV1 {
     initialStatusId?: string;
 }
 export interface CatalogPoliciesV1 {
+    fileTaskFilenameRule?: {
+        preset: 'same' | 'kebab' | 'snake';
+    };
     /** Optional so V1 clients can still decode Catalogs from older Runtime builds. */
     sourceTransitionRecoveryVersion?: 1;
     sourceTransitionRecoveryFeatures?: SourceTransitionRecoveryFeatureV1[];

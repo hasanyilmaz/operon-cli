@@ -8,6 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 import { build } from 'esbuild';
 import { buildCliManifestDocumentV1, CLI_SCHEMA_ENTRYPOINTS_V1 } from '../contract-manifest.mjs';
+import { RUNTIME_SCHEMA_AGGREGATE_V1, readRuntimeExtensionManifestsV1 } from './runtime-snapshot-schemas.mjs';
 
 const mode = process.argv[2];
 if (mode !== '--write' && mode !== '--check') throw new Error('Usage: generate-cli-manifest.mjs --write|--check');
@@ -30,7 +31,7 @@ try {
 	const manifestModule = require(modulePath);
 	const schemaRoot = path.join(projectRoot, 'schemas', 'v1');
 	const schemaFiles = (await listFiles(schemaRoot)).filter(name => name.endsWith('.json')).sort();
-	assert.equal(schemaFiles.length, 22);
+	assert.equal(schemaFiles.length, 29);
 	const schemas = [];
 	const documents = new Map();
 	for (const fileName of schemaFiles) {
@@ -44,26 +45,11 @@ try {
 		schemas.push({ file: fileName, ...(typeof document?.$id === 'string' ? { id: document.$id } : {}), sha256 });
 	}
 	const runtimeSchemaManifest = JSON.parse(await readFile(path.join(schemaRoot, 'schema-manifest.json'), 'utf8'));
-	assert.equal(runtimeSchemaManifest.aggregateSha256, '7f0123fc1da01ca5d10d02c8a95def5aae2bac9086ad19787dae547d94b59d8f');
-	const extensionManifest = JSON.parse(await readFile(path.join(
-		schemaRoot,
-		'extensions',
-		'task-workflows-v1',
-		'extension-manifest.json',
-	), 'utf8'));
-	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b');
-	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
-	assert.equal(extensionManifest.aggregateSha256, '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc');
-	for (const record of extensionManifest.documents) {
-		const relative = path.posix.join('extensions/task-workflows-v1', record.file);
-		const bytes = await readFile(path.join(schemaRoot, relative));
-		const document = JSON.parse(bytes.toString('utf8'));
-		assert.equal(document.$id, record.id, `OPERON_CLI_EXTENSION_SCHEMA_ID_MISMATCH:${record.file}`);
-		assert.equal(createHash('sha256').update(bytes).digest('hex'), record.sha256, `OPERON_CLI_EXTENSION_SCHEMA_HASH_MISMATCH:${record.file}`);
-	}
+	assert.equal(runtimeSchemaManifest.aggregateSha256, RUNTIME_SCHEMA_AGGREGATE_V1);
+	const extensionManifests = await readRuntimeExtensionManifestsV1(schemaRoot);
 	const schemaEntrypoints = [
 		...runtimeSchemaManifest.entrypoints,
-		...extensionManifest.entrypoints,
+		...extensionManifests.flatMap(manifest => manifest.entrypoints),
 		...CLI_SCHEMA_ENTRYPOINTS_V1,
 	].map(entrypoint => {
 		const [documentId] = entrypoint.ref.split('#', 1);
@@ -85,7 +71,7 @@ try {
 		schemas,
 		schemaEntrypoints,
 	);
-	assert.equal(manifest.contractDigest, '5f54a0ff6deff03fabcc5750cb089a4ace34fbdd89250d5e37a555f5de70d4b8');
+	assert.equal(manifest.contractDigest, 'bda87d1b3d231fbff11f9d7ac88caf2de52b2205c843e029b01c9f5838e09f03');
 	const serialized = `${JSON.stringify(manifest, null, 2)}\n`;
 	const target = path.join(projectRoot, 'cli-manifest-v1.json');
 	if (mode === '--write') await writeFile(target, serialized, 'utf8');

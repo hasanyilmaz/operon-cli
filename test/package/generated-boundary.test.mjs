@@ -3,6 +3,7 @@ import { readFile, readdir } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
+import Ajv2020 from 'ajv/dist/2020.js';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 
@@ -29,8 +30,15 @@ test('standalone package boundary is closed', async () => {
 test('generated public inventories are exact', async () => {
 	const schemas = (await list(path.join(projectRoot, 'schemas', 'v1')))
 		.filter(name => name.endsWith('.json'));
-	assert.equal(schemas.length, 22);
+	assert.equal(schemas.length, 29);
 	assert.deepEqual(schemas.filter(name => name.startsWith('extensions/')), [
+		'extensions/file-task-titles-v1/capabilities.schema.json',
+		'extensions/file-task-titles-v1/cli.schema.json',
+		'extensions/file-task-titles-v1/developer-api.schema.json',
+		'extensions/file-task-titles-v1/extension-manifest.json',
+		'extensions/file-task-titles-v1/mutation.schema.json',
+		'extensions/task-creation-v1/creation.schema.json',
+		'extensions/task-creation-v1/extension-manifest.json',
 		'extensions/task-workflows-v1/capabilities.schema.json',
 		'extensions/task-workflows-v1/cli.schema.json',
 		'extensions/task-workflows-v1/developer-api.schema.json',
@@ -39,6 +47,13 @@ test('generated public inventories are exact', async () => {
 		'extensions/task-workflows-v1/read.schema.json',
 	]);
 	assert.equal((await list(path.join(projectRoot, 'types'))).filter(name => name.endsWith('.d.ts')).length, 16);
+});
+
+test('the generated CLI manifest satisfies its published schema', async () => {
+	const schema = JSON.parse(await readFile(path.join(projectRoot, 'schemas', 'v1', 'cli-manifest.schema.json'), 'utf8'));
+	const manifest = JSON.parse(await readFile(path.join(projectRoot, 'cli-manifest-v1.json'), 'utf8'));
+	const validate = new Ajv2020({ strict: false }).compile(schema);
+	assert.equal(validate(manifest), true, JSON.stringify(validate.errors));
 });
 
 test('source and build files contain no plugin-relative or private path markers', async () => {

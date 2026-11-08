@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+import { EXPECTED_PACKAGE_PATHS_V1 } from './package-archive.mjs';
 import { validateReceiptPathV1, writeReceiptV1 } from './windows-candidate-validation.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -143,7 +144,7 @@ export function assertCliReceiptV1(receipt, expectedSha) {
 	assert.equal(receipt?.platform, 'win32', 'OPERON_WINDOWS_PAIR_CLI_PLATFORM');
 	assert.equal(receipt?.arch, 'x64', 'OPERON_WINDOWS_PAIR_CLI_ARCH');
 	assert.deepEqual(receipt?.toolchain, { node: EXPECTED_NODE, npm: EXPECTED_NPM }, 'OPERON_WINDOWS_PAIR_CLI_TOOLCHAIN');
-	assert.equal(receipt?.candidate?.inventory, 48, 'OPERON_WINDOWS_PAIR_CLI_INVENTORY');
+	assert.equal(receipt?.candidate?.inventory, EXPECTED_PACKAGE_PATHS_V1.length, 'OPERON_WINDOWS_PAIR_CLI_INVENTORY');
 	assert.match(receipt?.candidate?.sha256 ?? '', /^[0-9a-f]{64}$/u, 'OPERON_WINDOWS_PAIR_CLI_TARBALL_SHA');
 	assert.equal(receipt?.hosted?.assertions, 5, 'OPERON_WINDOWS_PAIR_CLI_HOSTED_ASSERTIONS');
 	assert.equal(receipt?.hosted?.skipped, 0, 'OPERON_WINDOWS_PAIR_CLI_HOSTED_SKIPPED');

@@ -10,7 +10,7 @@ import type {
 	WritableFieldValueV1,
 } from '../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
 import { parseReminderOffsetInput } from '../vendor/operon-plugin-v1/src/core/reminder-rules';
-import { sanitizeTerminalTextV1 } from './terminal-text';
+import { fileTaskTitleForDisplayV1, sanitizeTerminalTextV1 } from './terminal-text';
 import type { InteractiveTerminalPortV1 } from './terminal-port';
 
 const PAGE_SIZE = 20;
@@ -86,7 +86,8 @@ export async function runGuidedTaskUpdateWizardV1(options: {
 	if (candidates.some(field => !currentByKey.has(field.canonicalKey))) {
 		throw new Error('GUIDED_WRITABLE_FIELDS_INCOMPLETE');
 	}
-	port.write(`Update Operon task\n\nTask: ${display(task.description)}\n\n`);
+	const taskLabel = display(fileTaskTitleForDisplayV1(task) ?? task.description);
+	port.write(`Update Operon task\n\nTask: ${taskLabel}\n\n`);
 	const collected: CollectedUpdateV1[] = [];
 	const selected = new Set<string>();
 	while (collected.length < candidates.length) {
@@ -141,7 +142,7 @@ export async function runGuidedTaskUpdateWizardV1(options: {
 	if (collected.length === 0) return { status: 'no-change', message: 'No task changes were selected.' };
 	const summary = [
 		'Task update draft',
-		`Task: ${display(task.description)}`,
+		`Task: ${taskLabel}`,
 		...collected.map(item => `- ${item.summary}`),
 	].join('\n');
 	port.write(`\n${summary}\n`);
@@ -184,8 +185,9 @@ export async function runGuidedTransitionWizardV1(options: {
 			: []
 	));
 	if (statuses.length === 0) throw new Error('GUIDED_STATUS_UNAVAILABLE');
+	const taskLabel = display(fileTaskTitleForDisplayV1(task) ?? task.description);
 	port.write(
-		`Transition Operon task\n\nTask: ${display(task.description)}\n`
+		`Transition Operon task\n\nTask: ${taskLabel}\n`
 		+ `Current: ${display(task.workflow?.pipeline.label ?? 'Unresolved')} / `
 		+ `${display(task.workflow?.status.label ?? 'Unresolved')}\n\n`,
 	);
@@ -200,7 +202,7 @@ export async function runGuidedTransitionWizardV1(options: {
 	}
 	const summary = [
 		'Task transition draft',
-		`Task: ${display(task.description)}`,
+		`Task: ${taskLabel}`,
 		`From: ${display(task.workflow?.status.label ?? 'Unresolved')}`,
 		`To: ${display(selected.pipeline.name)} / ${display(selected.status.label)}`,
 		`Semantics: ${statusSemantics(selected.status)}`,
@@ -234,7 +236,8 @@ export async function runGuidedReminderWizardV1(options: {
 }): Promise<GuidedMaintenanceResultV1> {
 	const { port, task, operation } = options;
 	const catalog = requireCatalog(options.catalog);
-	port.write(`${title(operation)} reminder\n\nTask: ${display(task.description)}\n\n`);
+	const taskLabel = display(fileTaskTitleForDisplayV1(task) ?? task.description);
+	port.write(`${title(operation)} reminder\n\nTask: ${taskLabel}\n\n`);
 	let selected: ReminderItemReferenceV1 | undefined;
 	let collection: ReminderItemReferenceV1['collection'];
 	if (operation === 'replace' || operation === 'remove') {
@@ -278,7 +281,7 @@ export async function runGuidedReminderWizardV1(options: {
 	}
 	const summary = [
 		`${title(operation)} reminder draft`,
-		`Task: ${display(task.description)}`,
+		`Task: ${taskLabel}`,
 		`Type: ${reminderType(collection)}`,
 		...(selected ? [`Current: ${display(selected.expectedValue)}`] : []),
 		...(value ? [`New value: ${display(value)}`] : []),
@@ -333,7 +336,7 @@ export async function runGuidedTimerStartWizardV1(options: {
 	}
 	const summary = [
 		'Timer start draft',
-		`Assignment: ${task ? display(task.description) : 'Unassigned'}`,
+		`Assignment: ${task ? display(fileTaskTitleForDisplayV1(task) ?? task.description) : 'Unassigned'}`,
 		...(state.active ? ['Current active timer will be finalized or switched by the Runtime.'] : []),
 	].join('\n');
 	port.write(`\n${summary}\n`);
@@ -364,9 +367,12 @@ export async function runGuidedTimerStopWizardV1(options: {
 	const { port, state, target } = options;
 	if (state.transition) throw new Error('GUIDED_TIMER_TRANSITION_IN_PROGRESS');
 	if (!state.active) return { status: 'no-change', message: 'The Operon timer is already idle.' };
+	const currentTask = target
+		? fileTaskTitleForDisplayV1(target) ?? target.description
+		: state.active.operonId ?? 'Orphan task';
 	const summary = [
 		'Timer stop draft',
-		`Current: ${state.active.isUnassigned ? 'Unassigned' : display(target?.description ?? state.active.operonId ?? 'Orphan task')}`,
+		`Current: ${state.active.isUnassigned ? 'Unassigned' : display(currentTask)}`,
 		`Started: ${display(state.active.start)}`,
 	].join('\n');
 	port.write(`${summary}\n`);

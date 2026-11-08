@@ -9,7 +9,7 @@ import type {
 	GuidedMaintenanceResultV1,
 	GuidedMutationIntentV1,
 } from './guided-maintenance';
-import { sanitizeTerminalTextV1 } from './terminal-text';
+import { fileTaskTitleForDisplayV1, sanitizeTerminalTextV1 } from './terminal-text';
 import type { InteractiveTerminalPortV1 } from './terminal-port';
 
 interface ChoiceV1<T> {
@@ -82,10 +82,11 @@ export async function runGuidedDeleteWizardV1(options: {
 	task: TaskContextV1;
 }): Promise<GuidedMaintenanceResultV1> {
 	const { task, port } = options;
+	const taskLabel = display(fileTaskTitleForDisplayV1(task) ?? task.description);
 	port.write([
 		'Delete exact Operon task',
 		'',
-		`Task: ${display(task.description)}`,
+		`Task: ${taskLabel}`,
 		`ID: ${display(task.identity.operonId)}`,
 		`Source: ${displayLocator(task.locator)}`,
 		task.representation === 'file'
@@ -99,7 +100,7 @@ export async function runGuidedDeleteWizardV1(options: {
 	}
 	const summary = [
 		'Exact task deletion draft',
-		`Task: ${display(task.description)}`,
+		`Task: ${taskLabel}`,
 		`ID: ${display(task.identity.operonId)}`,
 		`Source: ${displayLocator(task.locator)}`,
 	].join('\n');
@@ -166,10 +167,11 @@ async function runFileToInline(options: {
 	loadPlacement: PlacementCandidateLoaderV1;
 }): Promise<GuidedMaintenanceResultV1> {
 	const { port, task } = options;
+	const taskLabel = display(fileTaskTitleForDisplayV1(task) ?? task.description);
 	port.write([
 		'Convert File Task to inline task',
 		'',
-		`Task: ${display(task.description)}`,
+		`Task: ${taskLabel}`,
 		'This conversion trashes the source File Task and may lose content that cannot be represented inline.',
 		'The exact loss manifest will be shown by Runtime preview.',
 		'',
@@ -178,7 +180,7 @@ async function runFileToInline(options: {
 	if (!destination) return cancelled('Task conversion cancelled before preview.');
 	const summary = [
 		'File Task to inline conversion draft',
-		`Task: ${display(task.description)}`,
+		`Task: ${taskLabel}`,
 		`From: ${displayLocator(task.locator)}`,
 		`To: ${displayLocator(destination.locator)}`,
 		'Source File Task: move to trash after target insertion',

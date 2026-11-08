@@ -3,6 +3,7 @@ import { chmod, copyFile, mkdtemp, mkdir, readFile, readdir, rename, rm, stat } 
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { RUNTIME_SCHEMA_AGGREGATE_V1, readRuntimeExtensionManifestsV1 } from './runtime-snapshot-schemas.mjs';
 
 const mode = process.argv[2];
 if (mode !== '--write' && mode !== '--check') throw new Error('Usage: generate-schemas.mjs --write|--check');
@@ -12,37 +13,33 @@ const temporaryRoot = await mkdtemp(path.join(tmpdir(), 'operon-cli-schemas-'));
 const generatedRoot = path.join(temporaryRoot, 'v1');
 await mkdir(generatedRoot, { recursive: true });
 try {
+	const snapshotRoot = path.join(projectRoot, 'vendor', 'operon-plugin-v1', 'contracts', 'agent-runtime');
 	const copied = new Set();
-	for (const [sourceRoot, relativeTarget] of [
-		[path.join(projectRoot, 'vendor', 'operon-plugin-v1', 'contracts', 'agent-runtime', 'v1'), ''],
-		[path.join(projectRoot, 'schema-source'), ''],
-		[
-			path.join(projectRoot, 'vendor', 'operon-plugin-v1', 'contracts', 'agent-runtime', 'extensions', 'task-workflows-v1'),
-			'extensions/task-workflows-v1',
-		],
-	]) {
-		for (const fileName of (await readdir(sourceRoot)).filter(name => name.endsWith('.json')).sort()) {
-			const relative = relativeTarget ? path.posix.join(relativeTarget, fileName) : fileName;
-			assert.equal(copied.has(relative), false, `OPERON_CLI_SCHEMA_FILENAME_COLLISION:${relative}`);
-			copied.add(relative);
-			const target = path.join(generatedRoot, relative);
-			await mkdir(path.dirname(target), { recursive: true });
-			await copyFile(path.join(sourceRoot, fileName), target);
-			await chmod(target, 0o644);
+	for (const root of [path.join(snapshotRoot, 'v1'), path.join(projectRoot, 'schema-source')]) {
+		for (const fileName of (await readdir(root)).filter(name => name.endsWith('.json')).sort()) {
+			await copySchema(root, '', fileName);
 		}
 	}
-	assert.equal(copied.size, 22, 'Generated schema inventory must contain 22 files.');
+	for (const manifest of await readRuntimeExtensionManifestsV1(snapshotRoot)) {
+		const relative = path.posix.join('extensions', manifest.extensionId);
+		const root = path.join(snapshotRoot, relative);
+		for (const fileName of ['extension-manifest.json', ...manifest.documents.map(record => record.file)]) {
+			await copySchema(root, relative, fileName);
+		}
+	}
+	assert.equal(copied.size, 29, 'Generated schema inventory must contain 29 files.');
 	const manifest = JSON.parse(await readFile(path.join(generatedRoot, 'schema-manifest.json'), 'utf8'));
-	assert.equal(manifest.aggregateSha256, '7f0123fc1da01ca5d10d02c8a95def5aae2bac9086ad19787dae547d94b59d8f');
-	const extensionManifest = JSON.parse(await readFile(path.join(
-		generatedRoot,
-		'extensions',
-		'task-workflows-v1',
-		'extension-manifest.json',
-	), 'utf8'));
-	assert.equal(extensionManifest.baseContractDigest, '407f3a222f8c59a9622038e99e9345d0d34882fd358149b38bce5354ae0ca92b');
-	assert.equal(extensionManifest.baseSchemaManifestAggregateSha256, '7cc7826093758c61491551c9ee925440e7641fecc44b953f7ea2c8595eb345fa');
-	assert.equal(extensionManifest.aggregateSha256, '2905fcf85df861a7d19e583636eaf3ad6d505d631b8776c6f77e1948b36feffc');
+	assert.equal(manifest.aggregateSha256, RUNTIME_SCHEMA_AGGREGATE_V1);
+
+	async function copySchema(root, directory, fileName) {
+		const relative = path.posix.join(directory, fileName);
+		assert.equal(copied.has(relative), false, `OPERON_CLI_SCHEMA_FILENAME_COLLISION:${relative}`);
+		copied.add(relative);
+		const target = path.join(generatedRoot, relative);
+		await mkdir(path.dirname(target), { recursive: true });
+		await copyFile(path.join(root, fileName), target);
+		await chmod(target, 0o644);
+	}
 	if (mode === '--check') {
 		await assertTreesEqual(generatedRoot, targetRoot);
 	} else {

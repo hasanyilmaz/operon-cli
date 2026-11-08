@@ -70,6 +70,7 @@ import {
 	verifySealedMutationPlanHashV1,
 } from './canonical';
 import {
+	compareResourceKeysCanonicalV1,
 	OPERON_ID_PATTERN_V1,
 	RESOURCE_QUEUE_ORDER_V1,
 	RESOURCE_KINDS_V1,
@@ -1618,9 +1619,14 @@ function checkCatalogPolicies(value: unknown, path: string, issues: DecodeIssueV
 		'sourceTransitionRecoveryVersion', 'sourceTransitionRecoveryFeatures',
 		'creation', 'inheritance', 'exclusions', 'filters', 'automation', 'reminders',
 		'conversion', 'taskUpdate', 'relationships', 'transitions', 'timer', 'inlineRelocation',
-		'deletion', 'projectSerialScopes',
+		'deletion', 'projectSerialScopes', 'fileTaskFilenameRule',
 	], issues);
 	if (!object) return;
+	if (object.fileTaskFilenameRule !== undefined) {
+		const rulePath = `${path}/fileTaskFilenameRule`;
+		const rule = inspectObject(object.fileTaskFilenameRule, rulePath, ['preset'], issues);
+		if (rule) checkEnum(rule.preset, ['same', 'kebab', 'snake'], `${rulePath}/preset`, issues);
+	}
 	const hasSourceTransitionRecoveryVersion =
 		object.sourceTransitionRecoveryVersion !== undefined;
 	const hasSourceTransitionRecoveryFeatures =
@@ -3678,9 +3684,7 @@ function compareResourcesCanonicalV1(left: Record<string, unknown>, right: Recor
 		? RESOURCE_QUEUE_ORDER_V1[right.resourceKind as keyof typeof RESOURCE_QUEUE_ORDER_V1]
 		: Number.MAX_SAFE_INTEGER;
 	if (leftKind !== rightKind) return leftKind - rightKind;
-	const leftKey = String(left.resourceKey);
-	const rightKey = String(right.resourceKey);
-	return leftKey < rightKey ? -1 : leftKey > rightKey ? 1 : 0;
+	return compareResourceKeysCanonicalV1(String(left.resourceKey), String(right.resourceKey));
 }
 
 function riskRank(value: unknown): number {
@@ -3704,7 +3708,7 @@ function checkTaskContext(value: unknown, path: string, issues: DecodeIssueV1[])
 		'identity', 'description', 'representation', 'locator', 'checkbox', 'workflow',
 		'priority', 'dates', 'datetimes', 'relationships', 'recurrence', 'tracker',
 		'pinned', 'sourceRevision', 'contextRevision', 'note', 'links', 'customFields',
-		'sourceMarkdown', 'trackerHistory', 'reminderItems', 'writableFields',
+		'sourceMarkdown', 'trackerHistory', 'reminderItems', 'writableFields', 'displayTitle',
 	], issues);
 	if (!object) return;
 	checkTaskIdentity(object.identity, `${path}/identity`, issues);
@@ -3744,6 +3748,9 @@ function checkTaskContext(value: unknown, path: string, issues: DecodeIssueV1[])
 	checkBoolean(object.pinned, `${path}/pinned`, issues);
 	checkSourceRevision(object.sourceRevision, `${path}/sourceRevision`, issues);
 	checkContextRevision(object.contextRevision, `${path}/contextRevision`, issues);
+	if (object.displayTitle !== undefined) {
+		checkStringByteCap(object.displayTitle, `${path}/displayTitle`, CONTEXT_HYDRATION_CAPS_V1.noteBytesPerTask, issues);
+	}
 	if (object.note !== undefined) {
 		checkStringByteCap(object.note, `${path}/note`, CONTEXT_HYDRATION_CAPS_V1.noteBytesPerTask, issues);
 	}

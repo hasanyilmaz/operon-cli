@@ -147,6 +147,7 @@ async function run(): Promise<void> {
 	await testSpawnKeepsStdinOpenUntilExit();
 	testRenderingAndExitCodes();
 	testHumanRendererCoverage();
+	await testFileTaskTitleRendering();
 	await testGuidedCreationModel();
 	await testGuidedMaintenanceModels();
 	await testGuidedTaskFinder();
@@ -811,6 +812,76 @@ function finderGet(
 		provenance: [],
 		truncations: [],
 	};
+}
+
+async function testFileTaskTitleRendering(): Promise<void> {
+	const revision = finderRevision();
+	const task: TaskContextV1 = {
+		...finderTask('abc1234', 'release-notes', {
+			representation: 'file',
+			filePath: 'Projects/release-notes.md',
+		}, revision),
+		displayTitle: '\u001bRelease |\nnotes\u202e',
+	};
+	const second: TaskContextV1 = {
+		...task,
+		identity: { ...task.identity, operonId: 'def5678' },
+		description: 'other-release-notes',
+		locator: { representation: 'file', filePath: 'Archive/other-release-notes.md' },
+	};
+	const details = (value: TaskContextV1) => renderHumanV1(successEnvelope('task.get', finderGet(value, revision)));
+	assert.match(details(task), /Task: Release ¦ notes\nFilename: release-notes/u);
+	assert.match(details(task), /^ID: abc1234$/mu);
+	assert.match(details(task), /^Source: Projects\/release-notes\.md$/mu);
+	assert.doesNotMatch(details(task), /\u001b|\u202e/u);
+	assert.match(details({ ...task, displayTitle: '🧭'.repeat(240) }), /Task: (?:🧭){99}…\n/u);
+
+	for (const displayTitle of [undefined, '', ' \t\u001b\u202e\n', task.description]) {
+		const rendered = details({ ...task, displayTitle });
+		assert.match(rendered, /^Task: release-notes$/mu);
+		assert.doesNotMatch(rendered, /^Filename:/mu);
+	}
+	const inline = finderTask('ghi9012', 'Inline text', {
+		representation: 'inline',
+		filePath: 'Projects/Release.md',
+		lineNumber: 3,
+	}, revision);
+	assert.match(details({ ...inline, displayTitle: 'Other title' }), /^Task: Inline text$/mu);
+
+	const finder = finderQuery([task, second], revision);
+	for (const rendered of [
+		renderHumanV1(successEnvelope('tasks.query', { ok: true, tasks: [task, second], page: finder.page })),
+		renderHumanV1(successEnvelope('tasks.finder', finder)),
+	]) {
+		assert.match(rendered, /abc1234 \| Release ¦ notes \| .*Projects\/release-notes\.md/u);
+		assert.match(rendered, /def5678 \| Release ¦ notes \| .*Archive\/other-release-notes\.md/u);
+	}
+
+	const output: string[] = [];
+	const result = await runGuidedTaskFinderV1({
+		initialQuery: 'release notes',
+		port: {
+			ask: async () => '2',
+			write: value => output.push(value),
+		},
+		runtime: {
+			finder: async () => ({ ok: true, value: finder, opaque: null }),
+			read: async selector => {
+				assert.deepEqual(selector, {
+					kind: 'exact-locator',
+					locator: second.locator,
+					expectedOperonId: second.identity.operonId,
+				});
+				return { ok: true, value: finderGet(second, revision), opaque: null };
+			},
+			catalog: async () => {
+				throw new Error('Unexpected catalog request.');
+			},
+		},
+	});
+	assert.equal(result.status, 'selected');
+	assert.match(output.join(''), /1\. Release \| notes/u);
+	assert.match(output.join(''), /2\. Release \| notes/u);
 }
 
 function testInteractiveShellLexingAndCompletion(): void {

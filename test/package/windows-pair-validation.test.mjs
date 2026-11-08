@@ -68,7 +68,7 @@ test('pair validator accepts only exact non-release Plugin and CLI evidence', ()
 		platform: 'win32',
 		arch: 'x64',
 		toolchain: { node: 'v24.18.0', npm: '11.12.1' },
-		candidate: { inventory: 48, sha256: '4'.repeat(64) },
+		candidate: { inventory: 55, sha256: '4'.repeat(64) },
 		hosted: { assertions: 5, skipped: 0 },
 		acceptance: {
 			portableBootstrap: {
