@@ -53,8 +53,8 @@ jobs:
         include:
           - id: ubuntu-24.04
             os: ubuntu-24.04
-          - id: macos-14
-            os: macos-14
+          - id: macos-15
+            os: macos-15
           - id: windows-2022
             os: windows-2022
     runs-on: ${{ matrix.os }}
