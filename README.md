@@ -62,6 +62,22 @@ checks the executable, profile, storage, transport, Runtime compatibility, and
 platform security boundary. Use `operon doctor --json` when attaching
 diagnostics to a bug report.
 
+When a vault has several Obsidian configuration folders, choose the folder used
+on this device. Match the name in **Files and links → Override config folder** in
+Obsidian. [Obsidian configuration folder](https://obsidian.md/help/configuration-folder)
+
+```bash
+operon setup --vault "/path/to/vault" --name work --config-dir .obsidian-desktop
+operon doctor --profile work
+operon doctor --vault "/path/to/vault" --config-dir .obsidian-desktop
+```
+
+Interactive `operon setup` offers a choice when it finds several installations.
+`operon setup --config-dir .obsidian-desktop` preselects a folder. The profile
+remembers the choice, and the last `doctor` example checks a folder for that
+invocation. `doctor --live` checks the selected manifest locally and verifies
+the Runtime in the vault currently open in Obsidian.
+
 The official Obsidian CLI addresses vaults by folder name. If two registered
 vaults have the same folder name, rename one before setup so Operon can fail
 closed instead of routing ambiguously.

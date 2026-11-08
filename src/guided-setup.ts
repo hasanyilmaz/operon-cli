@@ -1,11 +1,12 @@
 import { realpathSync } from 'node:fs';
 import { basename, dirname, parse } from 'node:path';
 
-import type {
-	OperonCliConfigV1,
-} from './config';
 import {
-	validateOperonManifestV1,
+	type OperonCliConfigV1,
+	listOperonConfigDirectoriesV1,
+	resolveOperonInstallationV1,
+	safeOperonManifestPathV1,
+	samePlatformPathV1,
 } from './config';
 import type { InteractiveTerminalPortV1 } from './terminal-port';
 import { sanitizeTerminalTextV1 } from './terminal-text';
@@ -15,6 +16,7 @@ const VAULT_DISCOVERY_DEPTH_LIMIT = 32;
 export interface GuidedSetupSelectionV1 {
 	vaultPath: string;
 	name: string;
+	configDir: string;
 	makeDefault: boolean;
 	verifyLive: boolean;
 }
@@ -27,11 +29,11 @@ export async function runGuidedSetupWizardV1(options: {
 	port: InteractiveTerminalPortV1;
 	config: OperonCliConfigV1;
 	cwd: string;
+	configDir?: string;
 }): Promise<GuidedSetupResultV1> {
 	const { port, config } = options;
 	port.write('Set up Operon CLI\n\n');
-	const discovered = discoverOperonVaultFromCwdV1(options.cwd);
-	let vaultPath = discovered;
+	let vaultPath = discoverOperonVaultFromCwdV1(options.cwd, options);
 	if (vaultPath) {
 		port.write(`Found an Operon vault in the current workspace: ${sanitizePathLabel(vaultPath)}\n`);
 		const useDiscovered = await askYesNo(port, 'Use this vault?', true);
@@ -43,16 +45,19 @@ export async function runGuidedSetupWizardV1(options: {
 		if (isCancelled(answer)) return cancelled();
 		try {
 			const canonical = realpathSync(answer!.trim());
-			validateOperonManifestV1(canonical);
-			vaultPath = canonical;
+			if (isOperonVaultCandidate(canonical, options)) {
+				vaultPath = canonical;
+				continue;
+			}
 		} catch {
-			port.write(
-				'That path is not an accessible Obsidian vault with one unambiguous Operon plugin installation.\n',
-			);
+			// Prompt again if the path cannot be inspected.
 		}
+		port.write('Enter an accessible Obsidian vault path with an Operon installation.\n');
 	}
 
-	const existing = config.profiles.find(profile => profile.canonicalPath === vaultPath);
+	const existing = config.profiles.find(profile => samePlatformPathV1(profile.canonicalPath, vaultPath));
+	const configDir = options.configDir ?? await chooseConfigDirectory(port, vaultPath, existing?.configDir);
+	if (configDir === null) return cancelled();
 	const derived = existing?.name ?? deriveProfileAliasV1(basename(vaultPath));
 	let name = derived;
 	if (!existing && config.profiles.length > 0) {
@@ -79,13 +84,17 @@ export async function runGuidedSetupWizardV1(options: {
 		selection: {
 			vaultPath,
 			name,
+			configDir,
 			makeDefault: config.profiles.length === 0,
 			verifyLive,
 		},
 	};
 }
 
-export function discoverOperonVaultFromCwdV1(cwd: string): string | null {
+export function discoverOperonVaultFromCwdV1(
+	cwd: string,
+	options: { config?: OperonCliConfigV1; configDir?: string } = {},
+): string | null {
 	let current: string;
 	try {
 		current = realpathSync(cwd);
@@ -94,16 +103,54 @@ export function discoverOperonVaultFromCwdV1(cwd: string): string | null {
 	}
 	for (let depth = 0; depth < VAULT_DISCOVERY_DEPTH_LIMIT; depth += 1) {
 		try {
-			validateOperonManifestV1(current);
-			return current;
+			if (isOperonVaultCandidate(current, options)) return current;
 		} catch {
-			// Continue upward until one exact Operon config directory is found.
+			// Continue upward if this directory cannot be inspected.
 		}
 		const parent = dirname(current);
 		if (parent === current || current === parse(current).root) break;
 		current = parent;
 	}
 	return null;
+}
+
+function isOperonVaultCandidate(
+	path: string,
+	options: { config?: OperonCliConfigV1; configDir?: string },
+): boolean {
+	return options.config?.profiles.some(profile => samePlatformPathV1(profile.canonicalPath, path)) === true
+		|| (options.configDir !== undefined && safeOperonManifestPathV1(path, options.configDir) !== undefined)
+		|| listOperonConfigDirectoriesV1(path).length > 0;
+}
+
+async function chooseConfigDirectory(
+	port: InteractiveTerminalPortV1,
+	vaultPath: string,
+	savedConfigDir?: string,
+): Promise<string | null> {
+	let savedError: unknown;
+	if (savedConfigDir !== undefined) {
+		try {
+			return resolveOperonInstallationV1(vaultPath, savedConfigDir).configDir;
+		} catch (error) {
+			savedError = error;
+			port.write(`Saved Obsidian config folder "${sanitizeTerminalTextV1(savedConfigDir)}" is unavailable.\n`);
+		}
+	}
+	const candidates = listOperonConfigDirectoriesV1(vaultPath).filter(name => name !== savedConfigDir);
+	if (candidates.length === 0) throw savedError ?? new Error('OPERON_PLUGIN_NOT_FOUND');
+	if (candidates.length === 1 && savedConfigDir === undefined) return candidates[0];
+	port.write([
+		'Obsidian config folders with an Operon manifest:',
+		...candidates.map((name, index) => `  ${index + 1}. ${sanitizeTerminalTextV1(name)}`),
+	].join('\n') + '\n');
+	while (true) {
+		const answer = await port.ask('Choose the folder used by Obsidian on this device, or q to cancel: ');
+		if (isCancelled(answer)) return null;
+		const selected = candidates.find((_, index) => answer!.trim() === String(index + 1));
+		if (selected !== undefined) return selected;
+		port.write('Enter a listed folder number or q.\n');
+	}
 }
 
 export function deriveProfileAliasV1(value: string): string {

@@ -44,7 +44,7 @@ import {
 	sanitizeTerminalTextV1,
 	type WindowsBrokerClientPortV1,
 } from '../../src/client';
-import { runPublicCommandLineV1 } from '../../src/command-line';
+import { runPublicCommandLineV1, type PublicCommandOutcomeV1, type PublicCommandPortsV1 } from '../../src/command-line';
 import {
 	OPERON_CLI_COMMAND_DEFINITIONS_V1,
 	completionCandidatesV1,
@@ -65,11 +65,11 @@ import {
 	createResolvedVaultCommandScopeV1,
 	loadOperonCliConfigV1,
 	removeVaultProfileV1,
+	resolveOperonInstallationV1,
 	resolveVaultV1,
 	saveOperonCliConfigV1,
 	setDefaultVaultProfileV1,
 	upsertVaultProfileV1,
-	validateOperonManifestV1,
 } from '../../src/config';
 import {
 	deriveProfileAliasV1,
@@ -92,6 +92,7 @@ import {
 	assertLiveTransportPlatformV1,
 	canonicalVaultIdentityV1,
 	liveTransportPlatformStatusV1,
+	requestPathForTokenV1,
 } from '../../src/protocol';
 
 test('command registry is the unique manifest and future completion authority', () => {
@@ -191,6 +192,8 @@ test('command registry is the unique manifest and future completion authority', 
 		'update',
 	]);
 	assert.deepEqual(completionCandidatesV1(['task', 'cr']), ['create']);
+	assert.deepEqual(completionCandidatesV1(['setup', '--config']), ['--config-dir']);
+	assert.deepEqual(completionCandidatesV1(['doctor', '--config']), ['--config-dir']);
 	assert.deepEqual(completionCandidatesV1(['task', 'create', '']), [
 		'file',
 		'inline',
@@ -1111,8 +1114,8 @@ test('profile setup is portable, owner-only and follows explicit precedence', as
 		const vaultA = await createVault(root, 'Vault A');
 		const vaultB = await createVault(root, 'Vault B');
 		let config = loadOperonCliConfigV1(path.join(root, 'config'));
-		config = upsertVaultProfileV1(config, { name: 'a', vaultPath: vaultA, makeDefault: true });
-		config = upsertVaultProfileV1(config, { name: 'b', vaultPath: vaultB });
+		config = upsertVaultProfileV1(config, { name: 'a', vaultPath: vaultA, makeDefault: true }).config;
+		config = upsertVaultProfileV1(config, { name: 'b', vaultPath: vaultB }).config;
 		saveOperonCliConfigV1(config, path.join(root, 'config'));
 		assert.equal(resolveVaultV1(config, { explicitProfile: 'b' }).canonicalPath, vaultB);
 		assert.equal(resolveVaultV1(config, { explicitVault: vaultA, explicitProfile: 'b' }).canonicalPath, vaultA);
@@ -1122,7 +1125,7 @@ test('profile setup is portable, owner-only and follows explicit precedence', as
 		const duplicateParentB = path.join(root, 'duplicate-b');
 		const duplicateA = await createVault(duplicateParentA, 'Shared Vault');
 		const duplicateB = await createVault(duplicateParentB, 'Shared Vault');
-		const withDuplicateName = upsertVaultProfileV1(
+		const { config: withDuplicateName } = upsertVaultProfileV1(
 			{ version: 1, profiles: [] },
 			{ name: 'duplicate-a', vaultPath: duplicateA },
 		);
@@ -1287,52 +1290,234 @@ test('setup discovers a custom Obsidian configuration directory by the exact Ope
 		const config = loadOperonCliConfigV1(path.join(root, 'config'));
 		assert.equal(config.profiles.length, 1);
 		assert.equal(config.profiles[0].canonicalPath, canonicalVaultPath);
+		assert.equal(config.profiles[0].configDir, '.custom-obsidian');
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
 
-test('Operon config discovery rejects ambiguity', async () => {
+test('guided setup finds the nearest multi-config vault and asks for an explicit selection', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-config-discovery-safety-'));
 	try {
-		const ambiguousVault = await createVault(root, 'Ambiguous Config Vault');
-		await mkdir(path.join(ambiguousVault, '.second-config', 'plugins', 'operon'), { recursive: true });
-		await writeFile(
-			path.join(ambiguousVault, '.second-config', 'plugins', 'operon', 'manifest.json'),
-			JSON.stringify({ id: 'operon', version: '2.6.0', minAppVersion: '1.8.9' }),
-		);
-		assert.equal(discoverOperonVaultFromCwdV1(ambiguousVault), null);
-		assert.throws(
-			() => validateOperonManifestV1(ambiguousVault),
-			/OPERON_CONFIG_DIRECTORY_AMBIGUOUS/u,
-		);
+		const parent = await createVault(root, 'Parent Vault');
+		const vault = await createMultiConfigVault(parent, 'Shared Vault');
+		const cwd = path.join(vault, 'Notes');
+		assert.equal(discoverOperonVaultFromCwdV1(cwd), vault);
+
+		const configRoot = path.join(root, 'config');
+		const cancelled = setupTerminal(['', 'q']);
+		const cancellation = await runPublicCommandLineV1(['setup'], { configRoot, cwd, interactive: cancelled.port });
+		assert.deepEqual(cancellation.envelope.result, { cancelled: true });
+		assert.deepEqual(loadOperonCliConfigV1(configRoot).profiles, []);
+		for (const name of DEVICE_CONFIG_FOLDERS) assert.ok(cancelled.output.includes(name), name);
+
+		const selected = setupTerminal(['', 'x', '2', 'n']);
+		const setup = await runPublicCommandLineV1(['setup'], { configRoot, cwd, interactive: selected.port });
+		assert.equal(setup.exitCode, 0, setup.human);
+		assert.match(selected.output, /Enter a listed folder number/u);
+		const [profile] = loadOperonCliConfigV1(configRoot).profiles;
+		assert.equal(profile.canonicalPath, vault);
+		assert.equal(profile.configDir, '.obsidian-desktop');
+		assert.match(setup.human, /Obsidian config folder: \.obsidian-desktop/u);
+
+		const again = setupTerminal(['', 'n']);
+		const reconfigured = await runPublicCommandLineV1(['setup'], { configRoot, cwd, interactive: again.port });
+		assert.equal(reconfigured.exitCode, 0, reconfigured.human);
+		assert.doesNotMatch(again.output, /Choose the folder/u);
+		assert.equal(loadOperonCliConfigV1(configRoot).profiles[0].configDir, profile.configDir);
+
+		const preselected = setupTerminal([vault, 'n']);
+		const otherRoot = path.join(root, 'other-config');
+		const explicit = await runPublicCommandLineV1(['setup', '--config-dir', '.obsidian-iphone'], {
+			configRoot: otherRoot, cwd: root, interactive: preselected.port,
+		});
+		assert.equal(explicit.exitCode, 0, explicit.human);
+		assert.match(preselected.output, /Exact Obsidian vault path/u);
+		assert.doesNotMatch(preselected.output, /Choose the folder/u);
+		assert.equal(loadOperonCliConfigV1(otherRoot).profiles[0].configDir, '.obsidian-iphone');
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
 
-test('Operon config discovery rejects intermediate symlink escapes', async t => {
-	const directorySymlinkUnavailableReason = symlinkCapabilityUnavailableReasonV1('dir');
-	if (directorySymlinkUnavailableReason) {
-		t.skip(directorySymlinkUnavailableReason);
-		return;
+test('setup pins independent device folders and doctor checks the selected installation', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-device-folders-'));
+	try {
+		const vault = await createMultiConfigVault(root, 'Shared Vault');
+		const vaultSha256 = canonicalVaultIdentityV1(vault).sha256;
+		const setupArgs = ['setup', '--vault', vault, '--name', 'shared'];
+		const desktop = { configRoot: path.join(root, 'desktop') };
+		const ipad = { configRoot: path.join(root, 'ipad') };
+		const ambiguous = await runPublicCommandLineV1([...setupArgs, '--json'], desktop);
+		assertLocalFailureReason(ambiguous, 'operon-config-directory-ambiguous', 2);
+		assert.match(ambiguous.human, /--config-dir <name>/u);
+		assert.ok(ambiguous.envelope.kind === 'operon-cli-local-result');
+		assert.deepEqual(ambiguous.envelope.error?.details?.configDirectories, DEVICE_CONFIG_FOLDERS);
+		assert.deepEqual(loadOperonCliConfigV1(desktop.configRoot).profiles, []);
+
+		for (const [ports, configDir, version] of [
+			[desktop, '.obsidian-desktop', '4.6.1'],
+			[ipad, '.obsidian-ipad', '4.6.2'],
+		] as const) {
+			const setup = await runPublicCommandLineV1([...setupArgs, '--config-dir', configDir, '--json'], ports);
+			assert.equal(setup.exitCode, 0, setup.human);
+			assert.equal(setup.json, true);
+			const [profile] = loadOperonCliConfigV1(ports.configRoot).profiles;
+			assert.equal(profile.configDir, configDir);
+			assert.equal(profile.vaultSha256, vaultSha256);
+			assert.deepEqual(setup.envelope.result, { profile, plugin: { id: 'operon', version, minAppVersion: '1.8.9' } });
+			await assertPublishedLocalSchema('setupResult', setup.envelope);
+
+			const listed = await runPublicCommandLineV1(['profile', 'list', '--json'], ports);
+			assert.equal(listed.exitCode, 0, listed.human);
+			assert.ok(listed.human.includes(configDir));
+			assert.deepEqual(listed.envelope.result, loadOperonCliConfigV1(ports.configRoot));
+			await assertPublishedLocalSchema('profileListResult', listed.envelope);
+
+			const doctor = await runPublicCommandLineV1(['doctor', '--profile', 'shared', '--json'], ports);
+			assertDoctorInstallation(doctor, configDir, vaultSha256, version);
+			await assertPublishedLocalSchema('doctorResult', doctor.envelope);
+		}
+
+		// Exact selections avoid the scan limit and leave unrelated manifests alone.
+		await writeFile(path.join(vault, '.obsidian-iphone', 'plugins', 'operon', 'manifest.json'), '{');
+		for (let index = 0; index < 64; index += 1) await mkdir(path.join(vault, `.unrelated-${index}`));
+		const sameProfile = await runPublicCommandLineV1(setupArgs, desktop);
+		assert.equal(sameProfile.exitCode, 0, sameProfile.human);
+		assert.equal(loadOperonCliConfigV1(desktop.configRoot).profiles[0].configDir, '.obsidian-desktop');
+		const before = await readFile(path.join(desktop.configRoot, 'config-v1.json'), 'utf8');
+		const oneOff = await runPublicCommandLineV1(
+			['doctor', '--vault', vault, '--config-dir', '.obsidian-ipad', '--json'],
+			desktop,
+		);
+		assertDoctorInstallation(oneOff, '.obsidian-ipad', vaultSha256, '4.6.2');
+		assert.equal(await readFile(path.join(desktop.configRoot, 'config-v1.json'), 'utf8'), before);
+		for (const selection of [[], ['--vault', vault, '--profile', 'shared']]) {
+			assertLocalFailureReason(await runPublicCommandLineV1([
+				'doctor', ...selection, '--config-dir', '.obsidian-ipad',
+			], desktop), 'doctor-config-dir-requires-vault', 2);
+		}
+
+		if (liveTransportPlatformStatusV1() !== 'unsupported') {
+			await assertLiveDeviceVaultIdentity(root, [desktop, ipad], vaultSha256);
+		}
+
+		const replacementVault = await createVault(root, 'Other Vault');
+		const replacement = await runPublicCommandLineV1(
+			['setup', '--vault', replacementVault, '--name', 'shared'],
+			desktop,
+		);
+		assert.equal(replacement.exitCode, 0, replacement.human);
+		assert.equal(loadOperonCliConfigV1(desktop.configRoot).profiles[0].configDir, '.obsidian');
+	} finally {
+		await rm(root, { recursive: true, force: true });
 	}
+});
+
+test('legacy profiles use a unique installation and report ambiguity after a second installation appears', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-legacy-profile-'));
+	try {
+		const vault = await createVault(root, 'Legacy Vault');
+		const configRoot = path.join(root, 'config');
+		const vaultSha256 = canonicalVaultIdentityV1(vault).sha256;
+		const legacy = {
+			version: 1 as const,
+			defaultProfile: 'legacy',
+			profiles: [{ name: 'legacy', canonicalPath: vault, vaultSha256, verifiedAt: '2026-11-08T00:00:00.000Z' }],
+		};
+		saveOperonCliConfigV1(legacy, configRoot);
+		const listed = await runPublicCommandLineV1(['profile', 'list', '--json'], { configRoot });
+		assert.deepEqual(listed.envelope.result, legacy);
+		await assertPublishedLocalSchema('profileListResult', listed.envelope);
+		const doctor = () => runPublicCommandLineV1(['doctor', '--profile', 'legacy', '--json'], { configRoot });
+		assertDoctorInstallation(await doctor(), '.obsidian', vaultSha256, '2.6.0');
+		assert.deepEqual(loadOperonCliConfigV1(configRoot), legacy);
+
+		await addOperonInstallation(vault, '.obsidian-desktop');
+		const ambiguous = await doctor();
+		assertLocalFailureReason(ambiguous, 'operon-config-directory-ambiguous', 2);
+		assert.match(ambiguous.human, /\.obsidian-desktop/u);
+		assert.match(ambiguous.human, /--config-dir <name>/u);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('a missing pinned folder requires a new selection even when one alternative remains', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-stale-config-dir-'));
+	try {
+		const vault = await createVault(root, 'Stale Vault');
+		const configRoot = path.join(root, 'config');
+		const ports = { configRoot, cwd: vault };
+		const savedDir = '.obsidian-desktop';
+		const manifest = await addOperonInstallation(vault, savedDir);
+		const setupArgs = ['setup', '--vault', vault, '--name', 'stale'];
+		assert.equal((await runPublicCommandLineV1([...setupArgs, '--config-dir', savedDir], ports)).exitCode, 0);
+		const savedConfig = loadOperonCliConfigV1(configRoot);
+		const doctor = () => runPublicCommandLineV1(['doctor', '--profile', 'stale', '--json'], ports);
+		for (const invalid of ['.', '..', 'obsidian', '/.obsidian', '../.obsidian', '.obsidian/sub', '.obsidian\\sub',
+			'C:\\.obsidian', '.obsidian:stream', '.obsidian\0', '.obsidian\u009f', '.' + 'a'.repeat(128)]) {
+			assertLocalFailureReason(await runPublicCommandLineV1(
+				[...setupArgs, '--config-dir', invalid], ports,
+			), 'invalid-config-dir', 2);
+		}
+		await writeFile(manifest, '{');
+		assertLocalFailureReason(await doctor(), 'operon-manifest-invalid', 3);
+		assertLocalFailureReason(await runPublicCommandLineV1(setupArgs, ports), 'operon-manifest-invalid', 3);
+		await rm(path.join(vault, savedDir), { recursive: true });
+		assertLocalFailureReason(await doctor(), 'operon-config-directory-unavailable', 3);
+		assertLocalFailureReason(await runPublicCommandLineV1(setupArgs, ports), 'operon-config-directory-unavailable', 3);
+
+		const cancelled = setupTerminal(['', '', 'q']);
+		const cancellation = await runPublicCommandLineV1(['setup'], { ...ports, interactive: cancelled.port });
+		assert.deepEqual(cancellation.envelope.result, { cancelled: true });
+		assert.match(cancelled.output, /Saved Obsidian config folder "\.obsidian-desktop" is unavailable/u);
+		assert.match(cancelled.output, /1\. \.obsidian\n/u);
+		assert.deepEqual(loadOperonCliConfigV1(configRoot), savedConfig);
+
+		const selected = setupTerminal(['', '1', 'n']);
+		const repaired = await runPublicCommandLineV1(['setup'], { ...ports, interactive: selected.port });
+		assert.equal(repaired.exitCode, 0, repaired.human);
+		assert.equal(loadOperonCliConfigV1(configRoot).profiles[0].configDir, '.obsidian');
+
+		const maxLengthDir = '.' + 'a'.repeat(127);
+		await addOperonInstallation(vault, maxLengthDir);
+		const override = await runPublicCommandLineV1([...setupArgs, '--config-dir', maxLengthDir, '--json'], ports);
+		assert.equal(override.exitCode, 0, override.human);
+		assert.ok(override.human.includes(maxLengthDir));
+		await assertPublishedLocalSchema('setupResult', override.envelope);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('selected config folders reject links at every manifest path component', async t => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-config-discovery-symlink-'));
 	try {
-		const escapedVault = path.join(root, 'Escaped Config Vault');
-		const externalPlugins = path.join(root, 'external-plugins');
-		await mkdir(path.join(escapedVault, '.custom-config'), { recursive: true });
-		await mkdir(path.join(externalPlugins, 'operon'), { recursive: true });
-		await writeFile(
-			path.join(externalPlugins, 'operon', 'manifest.json'),
-			JSON.stringify({ id: 'operon', version: '2.6.0', minAppVersion: '1.8.9' }),
-		);
-		await symlink(externalPlugins, path.join(escapedVault, '.custom-config', 'plugins'), 'dir');
-		assert.equal(discoverOperonVaultFromCwdV1(escapedVault), null);
-		assert.throws(
-			() => validateOperonManifestV1(escapedVault),
-			/OPERON_PLUGIN_NOT_FOUND/u,
-		);
+		const outside = path.join(root, 'outside');
+		const parts = ['.custom-config', 'plugins', 'operon', 'manifest.json'];
+		await addOperonInstallation(outside, parts[0]);
+		for (const [index, component] of parts.entries()) {
+			await t.test(component, async subtest => {
+				const kind = index === parts.length - 1 ? 'file' : process.platform === 'win32' ? 'junction' : 'dir';
+				const unavailable = kind === 'junction' ? undefined : symlinkCapabilityUnavailableReasonV1(kind);
+				if (unavailable) {
+					subtest.skip(unavailable);
+					return;
+				}
+				const vault = await createVault(root, 'Linked Vault ' + index);
+				const configRoot = path.join(root, 'config-' + index);
+				const prefix = parts.slice(0, index + 1);
+				await mkdir(path.join(vault, ...prefix.slice(0, -1)), { recursive: true });
+				await symlink(path.join(outside, ...prefix), path.join(vault, ...prefix), kind);
+				assert.equal(resolveOperonInstallationV1(vault).configDir, '.obsidian');
+				const refused = await runPublicCommandLineV1([
+					'setup', '--vault', vault, '--name', 'linked', '--config-dir', parts[0], '--json',
+				], { configRoot });
+				assertLocalFailureReason(refused, 'operon-config-directory-unavailable', 3);
+				assert.deepEqual(loadOperonCliConfigV1(configRoot).profiles, []);
+			});
+		}
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -1349,7 +1534,7 @@ test('profile resolution canonicalizes symlinks', async t => {
 		const vault = await createVault(root, 'Canonical Vault');
 		const alias = path.join(root, 'Vault Alias');
 		await symlink(vault, alias, 'dir');
-		const config = upsertVaultProfileV1(
+		const { config } = upsertVaultProfileV1(
 			{ version: 1, profiles: [] },
 			{ name: 'canonical', vaultPath: alias },
 		);
@@ -1363,7 +1548,7 @@ test('profile resolution fails closed for moved or corrupt vault state', async (
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-profile-safety-'));
 	try {
 		const vault = await createVault(root, 'Canonical Vault');
-		let config = upsertVaultProfileV1(
+		let { config } = upsertVaultProfileV1(
 			{ version: 1, profiles: [] },
 			{ name: 'canonical', vaultPath: vault },
 		);
@@ -1390,7 +1575,7 @@ test('command-scope targets fail closed on profile and vault inode drift', async
 	try {
 		const vault = await createVault(root, 'Scoped Vault');
 		const configRoot = path.join(root, 'config');
-		const configured = upsertVaultProfileV1(
+		const { config: configured } = upsertVaultProfileV1(
 			loadOperonCliConfigV1(configRoot),
 			{ name: 'scoped', vaultPath: vault, makeDefault: true },
 		);
@@ -2721,15 +2906,131 @@ async function runConcurrentCapacityWorkersV1(
 	return await Promise.all(workers.map(worker => worker.completed));
 }
 
+const DEVICE_CONFIG_FOLDERS = [
+	'.obsidian', '.obsidian-desktop', '.obsidian-ipad', '.obsidian-ipadmini', '.obsidian-iphone',
+];
+
 async function createVault(root: string, name: string): Promise<string> {
 	const vault = path.join(root, name);
-	await mkdir(path.join(vault, '.obsidian', 'plugins', 'operon'), { recursive: true });
+	await addOperonInstallation(vault, '.obsidian');
 	await mkdir(path.join(vault, 'Notes'), { recursive: true });
-	await writeFile(
-		path.join(vault, '.obsidian', 'plugins', 'operon', 'manifest.json'),
-		JSON.stringify({ id: 'operon', version: '2.6.0', minAppVersion: '1.8.9' }),
-	);
 	return await realpath(vault);
+}
+
+async function addOperonInstallation(vault: string, configDir: string, version = '2.6.0'): Promise<string> {
+	const pluginDir = path.join(vault, configDir, 'plugins', 'operon');
+	await mkdir(pluginDir, { recursive: true });
+	const manifest = path.join(pluginDir, 'manifest.json');
+	await writeFile(manifest, JSON.stringify({ id: 'operon', version, minAppVersion: '1.8.9' }));
+	return manifest;
+}
+
+async function createMultiConfigVault(root: string, name: string): Promise<string> {
+	const vault = await createVault(root, name);
+	await Promise.all(DEVICE_CONFIG_FOLDERS.slice(1).map((dir, index) => (
+		addOperonInstallation(vault, dir, `4.6.${index + 1}`)
+	)));
+	return vault;
+}
+
+function setupTerminal(answers: string[]) {
+	let output = '';
+	return {
+		get output() { return output; },
+		port: {
+			async ask(prompt: string) {
+				output += prompt;
+				return answers.shift() ?? null;
+			},
+			write(text: string) {
+				output += text;
+			},
+		},
+	};
+}
+
+function assertLocalFailureReason(outcome: PublicCommandOutcomeV1, reasonCode: string, exitCode: number): void {
+	assert.equal(outcome.exitCode, exitCode, outcome.human);
+	assert.ok(outcome.envelope.kind === 'operon-cli-local-result');
+	assert.equal(outcome.envelope.error?.details?.reasonCode, reasonCode);
+}
+
+function assertDoctorInstallation(
+	outcome: PublicCommandOutcomeV1,
+	configDir: string,
+	vaultSha256: string,
+	version: string,
+): void {
+	assert.equal(outcome.exitCode, 0, outcome.human);
+	assert.ok(outcome.human.includes('Obsidian config folder: ' + configDir));
+	assert.match(outcome.human, /Runtime: not requested/u);
+	const result = outcome.envelope.result as { vault: Record<string, unknown>; plugin: { version: string } };
+	assert.equal(result.vault.configDir, configDir);
+	assert.equal(result.vault.vaultSha256, vaultSha256);
+	assert.equal(result.plugin.version, version);
+}
+
+async function assertPublishedLocalSchema(definition: string, value: unknown): Promise<void> {
+	const ajv = new Ajv2020({ strict: false, logger: false });
+	for (const fileName of ['common.schema.json', 'operon-cli-local.schema.json']) {
+		ajv.addSchema(JSON.parse(await readFile(path.join('schemas', 'v1', fileName), 'utf8')));
+	}
+	const validate = ajv.getSchema('urn:operon:schema:cli:v1:operon-cli-local.schema.json#/$defs/' + definition);
+	assert.ok(validate);
+	assert.equal(validate(value), true, JSON.stringify(validate.errors));
+}
+
+async function assertLiveDeviceVaultIdentity(
+	root: string,
+	devices: Array<{ configRoot: string }>,
+	vaultSha256: string,
+): Promise<void> {
+	const invocations: Array<Parameters<WindowsBrokerClientPortV1['stage']>[0]> = [];
+	const broker = fakeWindowsBrokerV1('staged');
+	const requestRoot = path.join(root, 'requests');
+	const livePorts: PublicCommandPortsV1 = {
+		requestRoot,
+		_windowsBrokerClient: {
+			...broker,
+			async stage(invocation) {
+				invocations.push(invocation);
+				return broker.stage(invocation);
+			},
+		},
+		async runProcess(_executable, args) {
+			if (process.platform !== 'win32') {
+				const token = args.find(argument => argument.startsWith('requestToken='))!.slice('requestToken='.length);
+				invocations.push(JSON.parse(await readFile(requestPathForTokenV1(token, requestRoot), 'utf8')));
+			}
+			return {
+				exitCode: 1,
+				signal: null,
+				stdout: Buffer.alloc(0),
+				stderr: Buffer.from('synthetic live verification failure'),
+				totalMs: 1,
+				timedOut: false,
+				overflow: false,
+			};
+		},
+	};
+	for (const device of devices) {
+		const [profile] = loadOperonCliConfigV1(device.configRoot).profiles;
+		const doctor = await runPublicCommandLineV1([
+			'doctor', '--profile', 'shared', '--live', '--json', '--obsidian-bin', process.execPath,
+		], { ...livePorts, ...device });
+		assert.notEqual(doctor.exitCode, 0);
+		assert.ok(doctor.envelope.kind === 'cli-result');
+		assert.ok(doctor.human.includes('Local Operon manifest verified in ' + profile.configDir));
+		assert.equal(doctor.json, true);
+		const local = doctor.envelope.failure?.error.details?.localInstallation;
+		assert.ok(local && typeof local === 'object' && !Array.isArray(local));
+		assert.equal(local.configDir, profile.configDir);
+	}
+	assert.deepEqual(invocations.map(invocation => invocation.expectedVaultSha256), [vaultSha256, vaultSha256]);
+	for (const invocation of invocations) {
+		assert.equal(invocation.command, 'diagnostics');
+		assert.equal('configDir' in invocation, false);
+	}
 }
 
 function fakePlan(
