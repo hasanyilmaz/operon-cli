@@ -225,12 +225,16 @@ export function markMutationPlanDispatchedV1(
 		) {
 			throw new Error('PLAN_MALFORMED');
 		}
-		pruneExpiredMutationPlansV1(root, now);
-		if (
-			countProtectedRecoveryRecordsV1(root, record.planRef, now)
-			>= MUTATION_RECOVERY_RECORD_LIMIT_V1
-		) {
-			throw new Error('RECOVERY_STORE_UNAVAILABLE');
+		const { unresolvedCount, earliestExpiry } = inspectRecoveryCapacityV1(root, record.planRef, now);
+		if (unresolvedCount >= MUTATION_RECOVERY_RECORD_LIMIT_V1) {
+			const expiry = Number.isFinite(earliestExpiry)
+				? ` Earliest known recovery expiry is ${new Date(earliestExpiry).toISOString()}.`
+				: '';
+			throw Object.assign(new Error('RECOVERY_STORE_UNAVAILABLE'), {
+				publicReason: `The protected recovery store is full (${unresolvedCount}/${MUTATION_RECOVERY_RECORD_LIMIT_V1} unresolved records). `
+					+ 'No mutation was dispatched. Recover an existing plan with operon plan recover <planRef>.'
+					+ expiry,
+			});
 		}
 		const recoveryStartedAt = new Date(now).toISOString();
 		const dispatched = {
@@ -401,55 +405,59 @@ export function recordMutationOutcomeV1(
 	result: RuntimeMutationResultV1,
 	root: string = operonCliConfigRootV1(),
 ): 'discarded' | 'retained' {
-	const admitted = admitRuntimeMutationResultV1(result, applyRequest, {
-		vaultIdentityHash: record.vaultSha256,
-		clientInstanceId: record.clientInstanceId,
-	});
-	if (!admitted.ok || admitted.value.requestId !== applyRequest.requestId) {
-		throw new Error('PLAN_MALFORMED');
-	}
-	result = admitted.value;
-	if (result.status === 'applied' || result.status === 'already-applied') {
-		const recoveryStartedAt = record.recoveryStartedAt ?? new Date().toISOString();
+	return withDispatchCapacityLockV1(root, () => {
+		let current: StoredMutationPlanV1;
+		try {
+			current = decodeStoredPlan(readStoredPlanValueV1(record.planRef, root));
+		} catch (error) {
+			if (hasErrorCode(error, 'ENOENT')) return 'discarded';
+			throw error;
+		}
+		if (
+			current.planRef !== record.planRef
+			|| current.vaultSha256 !== record.vaultSha256
+			|| current.applyRequest?.requestId !== applyRequest.requestId
+			|| current.plan.planHash !== applyRequest.plan.planHash
+			|| current.idempotencyKey !== applyRequest.idempotencyKey
+		) throw new Error('PLAN_MALFORMED');
+		const admitted = admitRuntimeMutationResultV1(result, current.applyRequest, {
+			vaultIdentityHash: current.vaultSha256,
+			clientInstanceId: current.clientInstanceId,
+		});
+		if (!admitted.ok || admitted.value.requestId !== applyRequest.requestId) {
+			throw new Error('PLAN_MALFORMED');
+		}
+		const outcome = admitted.value;
+		const succeeded = outcome.status === 'applied' || outcome.status === 'already-applied';
+		// Once a verified success frees a slot, a late recovery response cannot reclaim it.
+		if (current.terminalResult && !succeeded) return 'retained';
+		if (
+			!succeeded
+			&& outcome.status !== 'outcome-unknown'
+			&& outcome.status !== 'partial'
+			&& !outcome.mutationMayHaveApplied
+		) {
+			removeMutationPlanFile(current.planRef, root);
+			return 'discarded';
+		}
+		const recoveryStartedAt = current.recoveryStartedAt
+			?? (isFiniteIsoDate(current.createdAt) ? current.createdAt : new Date().toISOString());
 		writeStoredPlanV1({
-			...record,
-			applyRequest,
+			...current,
 			recoveryStartedAt,
-			recoveryExpiresAt: record.recoveryExpiresAt ?? new Date(
+			recoveryExpiresAt: current.recoveryExpiresAt ?? new Date(
 				Date.parse(recoveryStartedAt) + MUTATION_RECOVERY_RETENTION_MS_V1,
 			).toISOString(),
 			lastOutcome: {
-				status: result.status,
-				mutationMayHaveApplied: result.mutationMayHaveApplied,
-				retryAllowed: result.retryAllowed,
-				...(result.ambiguitySource ? { ambiguitySource: result.ambiguitySource } : {}),
+				status: outcome.status,
+				mutationMayHaveApplied: outcome.mutationMayHaveApplied,
+				retryAllowed: outcome.retryAllowed,
+				...(outcome.ambiguitySource ? { ambiguitySource: outcome.ambiguitySource } : {}),
 			},
-			terminalResult: result,
+			...(succeeded ? { terminalResult: outcome } : {}),
 		}, root);
 		return 'retained';
-	}
-	const shouldRetain = result.status === 'outcome-unknown'
-		|| result.status === 'partial'
-		|| result.mutationMayHaveApplied;
-	if (!shouldRetain) {
-		removeMutationPlanFile(record.planRef, root);
-		return 'discarded';
-	}
-	writeStoredPlanV1({
-		...record,
-		applyRequest,
-		recoveryStartedAt: record.recoveryStartedAt ?? new Date().toISOString(),
-		recoveryExpiresAt: record.recoveryExpiresAt ?? new Date(
-			Date.now() + MUTATION_RECOVERY_RETENTION_MS_V1,
-		).toISOString(),
-		lastOutcome: {
-			status: result.status,
-			mutationMayHaveApplied: result.mutationMayHaveApplied,
-			retryAllowed: result.retryAllowed,
-			...(result.ambiguitySource ? { ambiguitySource: result.ambiguitySource } : {}),
-		},
-	}, root);
-	return 'retained';
+	});
 }
 
 function writeStoredPlan(record: StoredMutationPlanV1, root: string): void {
@@ -593,20 +601,21 @@ function assertApplyMatchesStoredPlan(
 	) throw new Error('PLAN_MALFORMED');
 }
 
-function countProtectedRecoveryRecordsV1(
+function inspectRecoveryCapacityV1(
 	root: string,
 	excludedPlanRef: string,
 	now: number,
-): number {
+): { unresolvedCount: number; earliestExpiry: number } {
 	const plansRoot = join(root, 'plans');
+	let unresolvedCount = 0;
+	let earliestExpiry = Infinity;
 	let names: string[];
 	try {
 		names = readdirSync(plansRoot);
 	} catch (error) {
-		if (hasErrorCode(error, 'ENOENT')) return 0;
+		if (hasErrorCode(error, 'ENOENT')) return { unresolvedCount, earliestExpiry };
 		throw error;
 	}
-	let count = 0;
 	for (const name of names) {
 		const match = /^([A-Za-z0-9_-]{32})\.json$/u.exec(name);
 		if (!match || match[1] === excludedPlanRef) continue;
@@ -614,16 +623,24 @@ function countProtectedRecoveryRecordsV1(
 		try {
 			candidate = readMutationPlanV1(match[1], root, { allowExpired: true, now });
 		} catch (error) {
+			if (hasErrorCode(error, 'ENOENT')) continue;
 			if (error instanceof Error && error.message === 'PLAN_EXPIRED') continue;
 			if (error instanceof Error && isIsolatedStoredPlanErrorV1(error)) {
-				if (storedPlanMayRequireRecoveryV1(match[1], root)) count += 1;
+				if (storedPlanMayRequireRecoveryV1(match[1], root)) unresolvedCount += 1;
 				continue;
 			}
 			throw error;
 		}
-		if (isProtectedRecoveryRecord(candidate)) count += 1;
+		if (!isProtectedRecoveryRecord(candidate)) {
+			if (now >= Date.parse(candidate.expiresAt)) removeMutationPlanFile(match[1], root);
+			continue;
+		}
+		if (candidate.terminalResult && candidate.planRef === match[1]) continue;
+		unresolvedCount += 1;
+		const expiry = recoveryExpiryMs(candidate);
+		if (expiry < earliestExpiry) earliestExpiry = expiry;
 	}
-	return count;
+	return { unresolvedCount, earliestExpiry };
 }
 
 function readStoredPlanValueV1(planRef: string, root: string): unknown {
@@ -651,6 +668,7 @@ function storedPlanMayRequireRecoveryV1(planRef: string, root: string): boolean 
 	try {
 		value = readStoredPlanValueV1(planRef, root);
 	} catch (error) {
+		if (hasErrorCode(error, 'ENOENT')) return false;
 		if (error instanceof Error && error.message === 'PLAN_MALFORMED') return true;
 		throw error;
 	}
