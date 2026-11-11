@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.1
+
+### Fixed
+
+- Read Operon manifests and Runtime descriptors on Windows when older libuv versions report the same volume serial differently for the path and the open handle. [#26](https://github.com/hasanyilmaz/operon-cli/issues/26)
+- Count unresolved apply operations against the recovery quota. Verified successful operations remain recoverable for 24 hours and no longer block new applies. [#28](https://github.com/hasanyilmaz/operon-cli/issues/28)
+
+### Maintenance
+
+- Update the transitive development dependency `brace-expansion` from 5.0.9 to 5.0.12. [PR #31](https://github.com/hasanyilmaz/operon-cli/pull/31)
+
 ## 1.3.0
 
 ### Added

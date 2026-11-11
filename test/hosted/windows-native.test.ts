@@ -345,7 +345,7 @@ async function testNamedPipeRoundTrip(root: string): Promise<void> {
 				requestId: 'windows-native-stage',
 				command: 'health',
 				mode: 'live',
-				clientVersion: '1.3.0',
+				clientVersion: '1.3.1',
 				compatibility: { contractVersion: 1, runtimeApi: { min: 1, max: 1 } },
 				cliContract: { min: 1, max: 1 },
 				expectedVaultSha256: vaultFence.sha256,
