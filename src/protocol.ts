@@ -13,6 +13,8 @@ import {
 	realpathSync,
 	unlinkSync,
 	writeFileSync,
+	type BigIntStats,
+	type Stats,
 } from 'node:fs';
 import { release, tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -280,22 +282,61 @@ export function cleanupSecureInvocationV1(
 }
 
 export function readInputFileSafelyV1(filePath: string): Buffer {
-	const pathStat = lstatSync(filePath);
+	const pathStat = lstatFileForReadV1(filePath);
 	if (pathStat.isSymbolicLink() || !pathStat.isFile()) throw new Error('INPUT_FILE_NOT_REGULAR');
 	if (pathStat.size > CONTRACT_LIMITS_V1.transportInputBytes) throw new Error('INPUT_TOO_LARGE');
 	const descriptor = openSync(filePath, fsConstants.O_RDONLY | (fsConstants.O_NOFOLLOW ?? 0));
 	try {
-		const openedStat = fstatSync(descriptor);
-		if (
-			!openedStat.isFile()
-			|| openedStat.dev !== pathStat.dev
-			|| openedStat.ino !== pathStat.ino
-		) throw new Error('INPUT_FILE_CHANGED');
+		if (!statVerifiedOpenFileV1(filePath, pathStat, descriptor)) throw new Error('INPUT_FILE_CHANGED');
 		const input = readFileSync(descriptor);
 		if (input.byteLength > CONTRACT_LIMITS_V1.transportInputBytes) throw new Error('INPUT_TOO_LARGE');
 		return input;
 	} finally {
 		closeSync(descriptor);
+	}
+}
+
+export function lstatFileForReadV1(filePath: string): Stats | BigIntStats {
+	return lstatSync(filePath, { bigint: process.platform === 'win32' });
+}
+
+export function statVerifiedOpenFileV1(
+	filePath: string,
+	pathStat: Stats | BigIntStats,
+	descriptor: number,
+): Stats | BigIntStats | undefined {
+	if (process.platform !== 'win32') {
+		const opened = fstatSync(descriptor);
+		return opened.isFile() && opened.dev === pathStat.dev && opened.ino === pathStat.ino ? opened : undefined;
+	}
+	const opened = fstatSync(descriptor, { bigint: true });
+	const zero = BigInt(0);
+	if (!opened.isFile() || opened.dev === zero || opened.ino === zero || opened.ino !== pathStat.ino) {
+		return undefined;
+	}
+	if (opened.dev === pathStat.dev) return opened;
+
+	// libuv 1.49 and 1.50 used the full volume serial for fast path stats and
+	// the low 32 bits for handle stats. libuv 1.51 made the two agree.
+	if (
+		!/^1\.(?:49|50)\.\d+$/u.test(process.versions.uv)
+		|| typeof pathStat.dev !== 'bigint'
+		|| opened.dev !== BigInt.asUintN(32, pathStat.dev)
+		|| !('birthtimeNs' in pathStat)
+		|| opened.birthtimeNs === zero
+		|| opened.birthtimeNs !== pathStat.birthtimeNs
+	) return undefined;
+
+	try {
+		const current = lstatSync(filePath, { bigint: true });
+		return current.isFile() && !current.isSymbolicLink()
+			&& current.dev === pathStat.dev && current.ino === pathStat.ino
+			&& current.birthtimeNs === pathStat.birthtimeNs
+			? opened
+			: undefined;
+	} catch {
+		// The original path identity could not be confirmed after opening.
+		return undefined;
 	}
 }
 
