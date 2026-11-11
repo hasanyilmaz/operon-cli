@@ -33,6 +33,7 @@ import type {
 import {
 	computeReceiptTargetDigestV1,
 	computeSealedMutationPlanHashV1,
+	structuredErrorV1,
 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1';
 import {
 	decodeCliInvocationV1,
@@ -70,6 +71,7 @@ import {
 	saveOperonCliConfigV1,
 	setDefaultVaultProfileV1,
 	upsertVaultProfileV1,
+	writeJsonAtomic,
 } from '../../src/config';
 import {
 	deriveProfileAliasV1,
@@ -87,6 +89,7 @@ import {
 	recordMutationOutcomeV1,
 	storeMutationPlanV1,
 	writeStoredPlanV1,
+	type StoredMutationPlanV1,
 } from '../../src/plan-store';
 import {
 	assertLiveTransportPlatformV1,
@@ -2539,178 +2542,135 @@ test('terminal tombstone accepts receipt replay without changing the exact apply
 			'already-applied',
 		);
 		assert.equal(replayed.terminalResult?.postflight?.status, 'receipt-replay');
+
+		const unknownError = structuredErrorV1('outcome-unknown', 'Synthetic uncertain result.');
+		assert.equal(recordMutationOutcomeV1(dispatched, applyRequest, {
+			contractVersion: 1,
+			kind: 'mutation-result',
+			requestId: applyRequest.requestId,
+			status: 'outcome-unknown',
+			mutationMayHaveApplied: true,
+			retryAllowed: false,
+			groupResults: [{
+				groupId: plan.atomicGroups[0].groupId,
+				status: 'outcome-unknown',
+				error: unknownError,
+			}],
+			ambiguitySource: 'group-outcome',
+			error: unknownError,
+		}, root), 'retained');
+		assert.deepEqual(readMutationPlanV1(stored.planRef, root, { allowExpired: true }), replayed);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
 });
 
-test('concurrent dispatch capacity reservation never protects more than 256 records', async () => {
+test('256 verified successes leave room for a new apply and retain their original recovery expiry', async () => {
+	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-completed-capacity-'));
+	try {
+		const vault = await createVault(root, 'Completed Capacity Vault');
+		const vaultSha256 = canonicalVaultIdentityV1(vault).sha256;
+		const now = Date.now();
+		let first: CapacityPlanV1 | undefined;
+		for (let index = 0; index < MUTATION_RECOVERY_RECORD_LIMIT_V1; index += 1) {
+			const record = capacityPlanV1(vault, vaultSha256, `completed-${index}`, now);
+			const dispatched = dispatchedCapacityPlanV1(record, now);
+			const terminalResult = index % 2 === 0
+				? fakeAppliedMutationResult(record.plan, now, dispatched.applyRequest.requestId, vaultSha256)
+				: fakeAlreadyAppliedMutationResult(record.plan, dispatched.applyRequest.requestId, now, vaultSha256);
+			// The first record predates explicit recovery timestamps.
+			const stored = index === 0 ? { ...record, applyRequest: dispatched.applyRequest } : dispatched;
+			writeStoredPlanV1({
+				...stored,
+				lastOutcome: { status: terminalResult.status, mutationMayHaveApplied: true, retryAllowed: false },
+				terminalResult,
+			}, root);
+			first ??= stored;
+		}
+		assert.ok(first);
+		const next = capacityPlanV1(vault, vaultSha256, 'apply-after-256-successes', Date.now());
+		writeStoredPlanV1(next, root);
+		const applied = await runSuccessfulCapacityPlanV1(root, next, 'apply');
+		assert.equal(applied.exitCode, 0, applied.human);
+		assert.equal(
+			readMutationPlanV1(next.planRef, root, { allowExpired: true }).terminalResult?.status,
+			'applied',
+		);
+		const recovered = await runSuccessfulCapacityPlanV1(root, first, 'recover');
+		assert.equal(recovered.exitCode, 0, recovered.human);
+		const originalExpiry = Date.parse(first.createdAt) + MUTATION_RECOVERY_RETENTION_MS_V1;
+		const beforeExpiry = readMutationPlanV1(first.planRef, root, {
+			allowExpired: true,
+			now: originalExpiry - 1,
+		});
+		assert.deepEqual(beforeExpiry.applyRequest, first.applyRequest);
+		assert.equal(beforeExpiry.terminalResult?.status, 'already-applied');
+		assert.equal(
+			beforeExpiry.recoveryExpiresAt,
+			new Date(originalExpiry).toISOString(),
+		);
+		assert.throws(() => readMutationPlanV1(first.planRef, root, {
+			allowExpired: true,
+			now: originalExpiry,
+		}), /PLAN_EXPIRED/u);
+	} finally {
+		await rm(root, { recursive: true, force: true });
+	}
+});
+
+test('256 unresolved records block new dispatch until one is recovered, including under concurrent admission', async () => {
 	const root = await mkdtemp(path.join(tmpdir(), 'operon-cli-recovery-capacity-'));
 	try {
 		const vault = await createVault(root, 'Recovery Capacity Vault');
-		const preloadDispatchedAt = Date.now();
+		const preloadDispatchedAt = Date.now() - 120_000;
 		const vaultSha256 = canonicalVaultIdentityV1(vault).sha256;
 		const preloadCount = process.platform === 'win32'
 			? MUTATION_RECOVERY_RECORD_LIMIT_V1
 			: MUTATION_RECOVERY_RECORD_LIMIT_V1 - 1;
-		for (let index = 0; index < preloadCount; index += 1) {
-			const idempotencyKey = `protected-recovery-record-${index}`;
-			const plan = fakePlan(
-				new Date(preloadDispatchedAt - 1_000).toISOString(),
-				new Date(preloadDispatchedAt + 60_000).toISOString(),
-				idempotencyKey,
-			);
-			const stored = process.platform === 'win32'
-				? {
-					version: 1 as const,
-					planRef: randomUUID().split('-').join(''),
-					vaultPath: vault,
-					vaultSha256,
-					clientInstanceId: plan.clientInstanceId,
-					idempotencyKey,
-					plan,
-					createdAt: plan.createdAt,
-					expiresAt: plan.expiresAt,
-				}
-				: storeMutationPlanV1({
-					vaultPath: vault,
-					vaultSha256,
-					request: fakeDeletePreviewRequest(plan, idempotencyKey),
-					plan,
-				}, root);
-			const applyRequest = buildMutationApplyRequestV1(stored, {
-				confirmationToken: confirmationTokenForPlanV1(plan),
-				now: new Date(preloadDispatchedAt).toISOString(),
-			});
-			if (process.platform === 'win32') {
-				writeStoredPlanV1({
-					...stored,
-					applyRequest,
-					recoveryStartedAt: new Date(preloadDispatchedAt).toISOString(),
-					recoveryExpiresAt: new Date(
-						preloadDispatchedAt + MUTATION_RECOVERY_RETENTION_MS_V1,
-					).toISOString(),
-				}, root);
-			} else {
-				markMutationPlanDispatchedV1(stored, applyRequest, root, preloadDispatchedAt);
-			}
-		}
-		const contenderPlanCreatedAt = Date.now();
-		const contenderKeys = process.platform === 'win32'
-			? ['protected-contender-overflow']
-			: ['protected-contender-a', 'protected-contender-b'];
-		const contenders = contenderKeys.map(idempotencyKey => {
-			const plan = fakePlan(
-				new Date(contenderPlanCreatedAt - 1_000).toISOString(),
-				new Date(contenderPlanCreatedAt + 60_000).toISOString(),
-				idempotencyKey,
-			);
-			if (process.platform === 'win32') {
-				const stored = {
-					version: 1 as const,
-					planRef: randomUUID().split('-').join(''),
-					vaultPath: vault,
-					vaultSha256,
-					clientInstanceId: plan.clientInstanceId,
-					idempotencyKey,
-					plan,
-					createdAt: plan.createdAt,
-					expiresAt: plan.expiresAt,
-				};
-				writeStoredPlanV1(stored, root);
-				return stored;
-			}
-			return storeMutationPlanV1({
-				vaultPath: vault,
-				vaultSha256,
-				request: fakeDeletePreviewRequest(plan, idempotencyKey),
-				plan,
-			}, root);
+		const recoverable = dispatchedCapacityPlanV1(
+			capacityPlanV1(vault, vaultSha256, 'recoverable', preloadDispatchedAt),
+			preloadDispatchedAt,
+		);
+		writeStoredPlanV1(recoverable, root);
+		const forged = dispatchedCapacityPlanV1(
+			capacityPlanV1(vault, vaultSha256, 'unverified-success', preloadDispatchedAt),
+			preloadDispatchedAt,
+		);
+		const forgedPath = path.join(root, 'plans', `${forged.planRef}.json`);
+		writeJsonAtomic(forgedPath, {
+			...forged,
+			lastOutcome: { status: 'applied', mutationMayHaveApplied: true, retryAllowed: false },
+			terminalResult: fakeAppliedMutationResult(forged.plan, preloadDispatchedAt, randomUUID(), vaultSha256),
 		});
-		const dispatchedAt = Date.now();
-		if (process.platform === 'win32') {
-			let processCalls = 0;
-			const contender = contenders[0];
-			assert.ok(contender);
-			assert.ok(dispatchedAt < Date.parse(contender.expiresAt));
-			const refused = await runPublicCommandLineV1([
-				'plan',
-				'apply',
-				contender.planRef,
-				'--confirm',
-				confirmationTokenForPlanV1(contender.plan),
-				'--json',
-			], {
-				configRoot: root,
-				runProcess: async () => {
-					processCalls += 1;
-					throw new Error('MUST_NOT_DISPATCH');
-				},
-			});
-			assert.equal(refused.exitCode, 5, JSON.stringify(refused));
-			assert.equal(
-				refused.envelope.kind === 'operon-cli-local-result'
-					? refused.envelope.error?.code
-					: undefined,
-				'receipt-store-unavailable',
-			);
-			assert.equal(refused.envelope.recovery, undefined);
-			assert.equal(processCalls, 0);
-			assert.equal(
-				readMutationPlanV1(contender.planRef, root, {
-					allowExpired: true,
-					now: dispatchedAt,
-				}).applyRequest,
-				undefined,
-				'capacity refusal must happen before dispatch evidence is written',
-			);
-			return;
+		const forgedBytes = await readFile(forgedPath);
+		for (let index = 2; index < preloadCount; index += 1) {
+			const record = capacityPlanV1(vault, vaultSha256, `unresolved-${index}`, preloadDispatchedAt);
+			writeStoredPlanV1(dispatchedCapacityPlanV1(record, preloadDispatchedAt), root);
 		}
-		const releasePath = path.join(root, 'release-capacity-workers');
-		const workerPath = path.join(root, 'plan-store-capacity-worker.mjs');
-		await writeFile(workerPath, __OPERON_PLAN_STORE_CAPACITY_WORKER_SOURCE__);
-		const outcomes = await runConcurrentCapacityWorkersV1(
-			contenders.map(record => record.planRef),
-			root,
-			workerPath,
-			releasePath,
-			dispatchedAt,
-		);
-		assert.equal(
-			outcomes.filter(outcome => outcome.ok).length,
-			1,
-			JSON.stringify(outcomes),
-		);
-		assert.deepEqual(
-			outcomes.filter(outcome => !outcome.ok).map(outcome => outcome.code),
-			['RECOVERY_STORE_UNAVAILABLE'],
-		);
-		const refusedPlanRef = outcomes.find(outcome => !outcome.ok)?.planRef;
-		assert.equal(typeof refusedPlanRef, 'string');
-		assert.equal(
-			readMutationPlanV1(refusedPlanRef as string, root, {
-				allowExpired: true,
-				now: dispatchedAt,
-			}).applyRequest,
-			undefined,
-			'capacity refusal must happen before dispatch evidence is written',
-		);
-		const protectedCount = (await readdir(path.join(root, 'plans')))
-			.filter(name => /^[A-Za-z0-9_-]{32}\.json$/u.test(name))
-			.map(name => readMutationPlanV1(name.slice(0, -5), root, { allowExpired: true }))
-			.filter(record => record.applyRequest !== undefined)
-			.length;
-		assert.equal(protectedCount, MUTATION_RECOVERY_RECORD_LIMIT_V1);
+		if (process.platform !== 'win32') {
+			const now = Date.now();
+			const contenders = ['concurrent-a', 'concurrent-b'].map(key => capacityPlanV1(vault, vaultSha256, key, now));
+			for (const contender of contenders) writeStoredPlanV1(contender, root);
+			const releasePath = path.join(root, 'release-capacity-workers');
+			const workerPath = path.join(root, 'plan-store-capacity-worker.mjs');
+			await writeFile(workerPath, __OPERON_PLAN_STORE_CAPACITY_WORKER_SOURCE__);
+			const outcomes = await runConcurrentCapacityWorkersV1(
+				contenders.map(record => record.planRef), root, workerPath, releasePath, now,
+			);
+			assert.equal(outcomes.filter(outcome => outcome.ok).length, 1, JSON.stringify(outcomes));
+			assert.deepEqual(
+				outcomes.filter(outcome => !outcome.ok).map(outcome => outcome.code),
+				['RECOVERY_STORE_UNAVAILABLE'],
+			);
+			for (const outcome of outcomes) {
+				assert.equal(Boolean(readMutationPlanV1(outcome.planRef, root).applyRequest), outcome.ok);
+			}
+		}
+		const refusedPlan = capacityPlanV1(vault, vaultSha256, 'overflow', Date.now());
+		writeStoredPlanV1(refusedPlan, root);
 		let processCalls = 0;
 		const refused = await runPublicCommandLineV1([
-			'plan',
-			'apply',
-			refusedPlanRef as string,
-			'--confirm',
-			confirmationTokenForPlanV1(
-				readMutationPlanV1(refusedPlanRef as string, root).plan,
-			),
-			'--json',
+			'plan', 'apply', refusedPlan.planRef, '--confirm', confirmationTokenForPlanV1(refusedPlan.plan), '--json',
 		], {
 			configRoot: root,
 			runProcess: async () => {
@@ -2718,15 +2678,30 @@ test('concurrent dispatch capacity reservation never protects more than 256 reco
 				throw new Error('MUST_NOT_DISPATCH');
 			},
 		});
-		assert.equal(refused.exitCode, 5);
-		assert.equal(
-			refused.envelope.kind === 'operon-cli-local-result'
-				? refused.envelope.error?.code
-				: undefined,
-			'receipt-store-unavailable',
-		);
+		assertLocalFailureReason(refused, 'recovery-store-unavailable', 5);
+		assert.ok(refused.envelope.kind === 'operon-cli-local-result');
+		assert.equal(refused.envelope.error?.code, 'receipt-store-unavailable');
+		const reason = refused.envelope.error?.reason ?? '';
+		assert.match(reason, /256\/256 unresolved records/u);
+		assert.ok(reason.includes(recoverable.recoveryExpiresAt));
+		assert.match(reason, /operon plan recover <planRef>/u);
+		assert.ok(refused.human.includes(reason));
 		assert.equal(refused.envelope.recovery, undefined);
 		assert.equal(processCalls, 0);
+		assert.equal(readMutationPlanV1(refusedPlan.planRef, root, { allowExpired: true }).applyRequest, undefined);
+		await assertPublishedLocalSchema('localResult', refused.envelope);
+
+		const recovered = await runSuccessfulCapacityPlanV1(root, recoverable, 'recover');
+		assert.equal(recovered.exitCode, 0, recovered.human);
+		const settled = readMutationPlanV1(recoverable.planRef, root, { allowExpired: true });
+		assert.deepEqual(settled.applyRequest, recoverable.applyRequest);
+		assert.equal(settled.terminalResult?.status, 'already-applied');
+		assert.equal(settled.recoveryExpiresAt, recoverable.recoveryExpiresAt);
+		const next = capacityPlanV1(vault, vaultSha256, 'after-recovery', Date.now());
+		writeStoredPlanV1(next, root);
+		const applied = await runSuccessfulCapacityPlanV1(root, next, 'apply');
+		assert.equal(applied.exitCode, 0, applied.human);
+		assert.deepEqual(await readFile(forgedPath), forgedBytes);
 	} finally {
 		await rm(root, { recursive: true, force: true });
 	}
@@ -3334,6 +3309,119 @@ function fakeAlreadyAppliedMutationResult(
 		},
 		postflight: { status: 'receipt-replay' },
 	};
+}
+
+type CapacityPlanV1 = StoredMutationPlanV1 & { plan: SealedMutationPlanV1 };
+
+function capacityPlanV1(
+	vaultPath: string,
+	vaultSha256: string,
+	key: string,
+	now: number,
+): CapacityPlanV1 {
+	const idempotencyKey = `recovery-capacity-${key}`;
+	const plan = fakePlan(
+		new Date(now - 1_000).toISOString(),
+		new Date(now + 59_000).toISOString(),
+		idempotencyKey,
+	);
+	return {
+		version: 1,
+		planRef: randomUUID().split('-').join(''),
+		vaultPath,
+		vaultSha256,
+		clientInstanceId: plan.clientInstanceId,
+		idempotencyKey,
+		plan,
+		createdAt: plan.createdAt,
+		expiresAt: plan.expiresAt,
+	};
+}
+
+function dispatchedCapacityPlanV1(record: CapacityPlanV1, now: number) {
+	const recoveryStartedAt = new Date(now).toISOString();
+	return {
+		...record,
+		applyRequest: buildMutationApplyRequestV1(record, {
+			confirmationToken: confirmationTokenForPlanV1(record.plan),
+			now: recoveryStartedAt,
+		}),
+		recoveryStartedAt,
+		recoveryExpiresAt: new Date(now + MUTATION_RECOVERY_RETENTION_MS_V1).toISOString(),
+	};
+}
+
+async function runSuccessfulCapacityPlanV1(
+	root: string,
+	record: CapacityPlanV1,
+	action: 'apply' | 'recover',
+): Promise<PublicCommandOutcomeV1> {
+	writeJsonAtomic(path.join(root, 'client-v1.json'), {
+		version: 1,
+		clientInstanceId: record.clientInstanceId,
+	});
+	const requestRoot = path.join(root, 'requests');
+	const broker = fakeWindowsBrokerV1('dispatch-started');
+	let stagedInvocation: Parameters<WindowsBrokerClientPortV1['stage']>[0] | undefined;
+	return await runPublicCommandLineV1([
+		'plan', action, record.planRef, '--json', '--obsidian-bin', process.execPath,
+		...(action === 'apply' ? ['--confirm', confirmationTokenForPlanV1(record.plan)] : []),
+	], {
+		configRoot: root,
+		requestRoot,
+		_windowsBrokerClient: {
+			...broker,
+			async stage(invocation) {
+				stagedInvocation = invocation;
+				return broker.stage(invocation);
+			},
+		},
+		async runProcess(_executable, args) {
+			if (process.platform !== 'win32') {
+				const token = args.find(argument => argument.startsWith('requestToken='))?.slice('requestToken='.length);
+				assert.ok(token);
+				const requestPath = requestPathForTokenV1(token, requestRoot);
+				stagedInvocation = JSON.parse(await readFile(requestPath, 'utf8'));
+				await unlink(requestPath);
+			}
+			assert.equal(stagedInvocation?.command, 'mutation.apply');
+			const persisted = readMutationPlanV1(record.planRef, root, { allowExpired: true });
+			assert.ok(persisted.applyRequest);
+			assert.deepEqual(stagedInvocation.request, record.applyRequest ?? persisted.applyRequest);
+			const { requestId } = persisted.applyRequest;
+			const now = Date.now();
+			const result = action === 'apply'
+				? fakeAppliedMutationResult(record.plan, now, requestId, record.vaultSha256)
+				: fakeAlreadyAppliedMutationResult(record.plan, requestId, now, record.vaultSha256);
+			return {
+				exitCode: 0,
+				signal: null,
+				stdout: Buffer.from(JSON.stringify({
+					contractVersion: 1,
+					kind: 'cli-result',
+					requestId,
+					command: 'mutation.apply',
+					ok: true,
+					transport: { channel: 'request-file', inputBytes: 1 },
+					vaultIdentity: { expectedMatch: true },
+					compatibility: { contractVersion: 1, compatible: true, runtimeApi: 1 },
+					cliContract: 1,
+					runtime: {
+						appVersion: '1.13.3',
+						plugin: { id: 'operon', version: '4.6.0', minAppVersion: '1.7.2' },
+						apiVersion: 1,
+					},
+					timing: { handlerMs: 1 },
+					warnings: [],
+					result,
+				})),
+				stderr: Buffer.alloc(0),
+				totalMs: 1,
+				timedOut: false,
+				overflow: false,
+			};
+		},
+	});
 }
 
 function escapeRegExp(value: string): string {
