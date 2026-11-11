@@ -2,7 +2,6 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
 	closeSync,
 	constants as fsConstants,
-	fstatSync,
 	lstatSync,
 	openSync,
 	readFileSync,
@@ -17,6 +16,8 @@ import {
 	type CanonicalVaultFenceV1,
 	assertCanonicalVaultFenceV1,
 	ensureSecureRequestRootV1,
+	lstatFileForReadV1,
+	statVerifiedOpenFileV1,
 } from './protocol';
 import {
 	assertSecureFileV1,
@@ -1009,9 +1010,9 @@ interface PendingFrameV1 {
 function readSecureDescriptor(root: string, vaultSha256: string): PersistentDescriptorV1 {
 	if (!HEX_64.test(vaultSha256)) throw new PersistentReadTransportErrorV1('PERSISTENT_VAULT_SHA_INVALID', false);
 	const descriptorPath = path.join(root, `persistent-read-${vaultSha256}.json`);
-	let pathStat: ReturnType<typeof lstatSync>;
+	let pathStat: ReturnType<typeof lstatFileForReadV1>;
 	try {
-		pathStat = lstatSync(descriptorPath);
+		pathStat = lstatFileForReadV1(descriptorPath);
 	} catch (error) {
 		if (isErrorCodeV1(error, 'ENOENT')) {
 			throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_MISSING', false);
@@ -1021,7 +1022,7 @@ function readSecureDescriptor(root: string, vaultSha256: string): PersistentDesc
 	if (
 		pathStat.isSymbolicLink()
 		|| !pathStat.isFile()
-		|| (process.platform !== 'win32' && (pathStat.mode & 0o777) !== 0o600)
+		|| (process.platform !== 'win32' && (Number(pathStat.mode) & 0o777) !== 0o600)
 	) {
 		throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_INSECURE', false);
 	}
@@ -1032,7 +1033,7 @@ function readSecureDescriptor(root: string, vaultSha256: string): PersistentDesc
 			throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_INSECURE', false);
 		}
 	}
-	if (typeof process.getuid === 'function' && pathStat.uid !== process.getuid()) {
+	if (typeof process.getuid === 'function' && Number(pathStat.uid) !== process.getuid()) {
 		throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_WRONG_OWNER', false);
 	}
 	let descriptorFd: number | null = null;
@@ -1042,10 +1043,9 @@ function readSecureDescriptor(root: string, vaultSha256: string): PersistentDesc
 			fsConstants.O_RDONLY
 				| (process.platform === 'win32' ? 0 : (fsConstants.O_NOFOLLOW ?? 0)),
 		);
-		const openedStat = fstatSync(descriptorFd);
+		const openedStat = statVerifiedOpenFileV1(descriptorPath, pathStat, descriptorFd);
 		if (
-			openedStat.dev !== pathStat.dev
-			|| openedStat.ino !== pathStat.ino
+			!openedStat
 			|| openedStat.size < 2
 			|| openedStat.size > DESCRIPTOR_MAX_BYTES
 		) throw new PersistentReadTransportErrorV1('PERSISTENT_DESCRIPTOR_CHANGED', false);

@@ -12,6 +12,7 @@ import {
 	PersistentReadTransportErrorV1,
 	PersistentReadTransportV1,
 } from '../../src/persistent-read-client';
+import { runPublicCommandLineV1 } from '../../src/command-line';
 import { resolveObsidianExecutableV1, terminateProcessTreeV1 } from '../../src/process-platform';
 import { createCanonicalVaultFenceV1 } from '../../src/protocol';
 import type { CliInvocationV1 } from '../../vendor/operon-plugin-v1/src/agent-runtime/contracts/v1/cli';
@@ -103,16 +104,23 @@ async function testBootstrapDescriptorDaclAndFailClosed(root: string): Promise<v
 	const systemRoot = process.env.SystemRoot ?? process.env.SYSTEMROOT;
 	assert.ok(systemRoot && path.win32.isAbsolute(systemRoot));
 	const icacls = path.win32.join(systemRoot, 'System32', 'icacls.exe');
-	const weakened = spawnSync(icacls, [descriptorPath, '/inheritance:e'], {
-		encoding: 'utf8',
-		windowsHide: true,
-		shell: false,
-	});
-	assert.equal(weakened.status, 0, weakened.stderr);
 	const previousLocalAppData = process.env.LOCALAPPDATA;
 	process.env.LOCALAPPDATA = localAppData;
 	let bootstrapCalls = 0;
 	try {
+		await writeFile(descriptorPath, '{invalid json');
+		await assert.rejects(
+			createWindowsBrokerClientV1({ vaultSha256 }),
+			error => error instanceof PersistentReadTransportErrorV1
+				&& error.message === 'PERSISTENT_DESCRIPTOR_INVALID',
+		);
+		writeSecureJsonAtomicV1(descriptorPath, admittedDescriptor, 'win32');
+		const weakened = spawnSync(icacls, [descriptorPath, '/inheritance:e'], {
+			encoding: 'utf8',
+			windowsHide: true,
+			shell: false,
+		});
+		assert.equal(weakened.status, 0, weakened.stderr);
 		await assert.rejects(
 			createWindowsBrokerClientV1({
 				vaultSha256,
@@ -145,6 +153,25 @@ async function testExecutableResolution(root: string): Promise<void> {
 }
 
 async function testStorageDaclAndReparsePoints(root: string): Promise<void> {
+	const vault = path.join(root, 'Manifest Vault');
+	const pluginDir = path.join(vault, '.obsidian', 'plugins', 'operon');
+	await mkdir(pluginDir, { recursive: true });
+	const manifestPath = path.join(pluginDir, 'manifest.json');
+	const manifest = { id: 'operon', version: '4.6.0', minAppVersion: '1.12.2' };
+	await writeFile(manifestPath, JSON.stringify(manifest));
+	const ports = { configRoot: path.join(root, 'Manifest Config') };
+	const setup = await runPublicCommandLineV1(['setup', '--vault', vault, '--name', 'main', '--json'], ports);
+	assert.equal(setup.exitCode, 0, setup.human);
+	const doctor = await runPublicCommandLineV1(['doctor', '--profile', 'main', '--json'], ports);
+	assert.equal(doctor.exitCode, 0, doctor.human);
+	assert.ok(doctor.envelope.result && typeof doctor.envelope.result === 'object' && 'plugin' in doctor.envelope.result);
+	assert.deepEqual(doctor.envelope.result.plugin, manifest);
+	await writeFile(manifestPath, '{invalid json');
+	const invalid = await runPublicCommandLineV1(['doctor', '--profile', 'main', '--json'], ports);
+	assert.equal(invalid.exitCode, 3, invalid.human);
+	assert.equal(invalid.envelope.kind, 'operon-cli-local-result');
+	assert.equal(invalid.envelope.error?.details?.reasonCode, 'operon-manifest-invalid');
+
 	const config = path.join(root, 'config');
 	ensureSecureDirectoryV1(config, 'win32');
 	writeSecureJsonAtomicV1(path.join(config, 'config-v1.json'), { ok: true }, 'win32');
