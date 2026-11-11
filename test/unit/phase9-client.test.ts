@@ -3372,7 +3372,8 @@ async function runSuccessfulCapacityPlanV1(
 		_windowsBrokerClient: {
 			...broker,
 			async stage(invocation) {
-				stagedInvocation = invocation;
+				// The Windows broker receives JSON, just as the request-file handler does.
+				stagedInvocation = JSON.parse(JSON.stringify(invocation));
 				return broker.stage(invocation);
 			},
 		},
