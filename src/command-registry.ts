@@ -51,6 +51,9 @@ const INPUT_OPTIONS = Object.freeze([
 	...TARGET_OPTIONS,
 ]);
 
+export const PLAN_CONFIRMATION_GUIDANCE_V1 =
+	'For non-interactive apply, review the same plan with operon plan show PLAN_REF --json. After explicit approval, pass result.plan.confirmationToken to --confirm.';
+
 export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 	{
 		id: 'version',
@@ -198,12 +201,15 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		route: 'local',
 		section: 'plans',
 		summary: 'Apply one unchanged stored mutation plan.',
-		usage: ['operon plan apply <plan-ref> [--confirm <target-digest>] [--json]'],
+		usage: ['operon plan apply <plan-ref> [--confirm <confirmation-token>] [--json]'],
 		options: [
-			'--confirm <digest>   Confirm an exact confirmation-gated target.',
+			`--confirm <confirmation-token>  ${PLAN_CONFIRMATION_GUIDANCE_V1}`,
 			'--json               Emit a JSON result envelope.',
 		],
-		examples: ['operon plan apply PLAN_REF --json'],
+		examples: [
+			'operon plan apply PLAN_REF --json',
+			'operon plan apply PLAN_REF --confirm CONFIRMATION_TOKEN --json',
+		],
 		safety: 'Apply only a reviewed, unchanged plan. Never repeat an uncertain apply.',
 	},
 	{
@@ -476,13 +482,16 @@ export const OPERON_CLI_COMMAND_DEFINITIONS_V1 = Object.freeze([
 		route: 'runtime',
 		section: 'plans',
 		summary: 'Apply a stored plan reference through the safe public path.',
-		usage: ['operon mutation apply --plan-ref <plan-ref> [--confirm <target-digest>] [--json]'],
+		usage: ['operon mutation apply --plan-ref <plan-ref> [--confirm <confirmation-token>] [--json]'],
 		options: [
 			'--plan-ref <ref>     Stored plan reference.',
-			'--confirm <digest>   Exact confirmation target digest when required.',
+			`--confirm <confirmation-token>  ${PLAN_CONFIRMATION_GUIDANCE_V1}`,
 			'--json               Emit a JSON result envelope.',
 		],
-		examples: ['operon mutation apply --plan-ref PLAN_REF --json'],
+		examples: [
+			'operon mutation apply --plan-ref PLAN_REF --json',
+			'operon mutation apply --plan-ref PLAN_REF --confirm CONFIRMATION_TOKEN --json',
+		],
 		safety: 'Raw mutation apply input is not accepted.',
 		contract: {
 			capability: 'mutation-kind-derived',

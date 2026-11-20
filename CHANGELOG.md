@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Explain how to get the confirmation token for non-interactive plan apply. [#33](https://github.com/hasanyilmaz/operon-cli/issues/33)
+
 ## 1.3.1
 
 ### Fixed
