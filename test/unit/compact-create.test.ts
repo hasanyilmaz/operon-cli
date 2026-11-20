@@ -51,6 +51,7 @@ function run(): void {
 	testCompactLines();
 	testCompiler();
 	testCompilerRefusals();
+	testMonthlyScheduleRepeatRules();
 	console.log('Compact create parser/compiler tests passed');
 }
 
@@ -558,6 +559,36 @@ function testCompilerRefusals(): void {
 		['Test', 'priority::A'],
 		'AMBIGUOUS_PRIORITY',
 	);
+}
+
+function testMonthlyScheduleRepeatRules(): void {
+	const model = creationModel(false);
+	const monthly = 'mode=schedule|freq=month|interval=4';
+	const compileRule = (rule: string) => compileCompactCreateIntentV1({
+		ast: compact(['Monthly task', `repeat::${rule}`]),
+		model,
+		itemRef: 'monthly-repeat',
+	});
+
+	for (const { rule, reason } of [
+		{ rule: monthly, reason: /monthdays=20.*days=mo\|setpos=1/u },
+		{ rule: `${monthly}| DAYS = mo`, reason: /with days= also needs setpos=.*setpos=1/u },
+		{ rule: `${monthly}|setpos=1`, reason: /with setpos= also needs one weekday in days=.*days=mo/u },
+	]) {
+		assert.throws(() => compileRule(rule), {
+			code: 'INVALID_FIELD_VALUE',
+			key: 'repeat',
+			publicReason: reason,
+		});
+	}
+
+	for (const rule of [
+		`${monthly}|monthdays=20`,
+		`${monthly}|days=mo|setpos=1`,
+		'mode=done|freq=month|interval=4',
+	]) {
+		assert.deepEqual(compileRule(rule).spec.items[0].fields, [{ kind: 'recurrence', rule }]);
+	}
 }
 
 function compact(tokens: string[]) {

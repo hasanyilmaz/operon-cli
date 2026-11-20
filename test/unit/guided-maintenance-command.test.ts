@@ -1196,6 +1196,18 @@ async function testCompactCreationFlows(): Promise<void> {
 			'mutation.apply',
 		]);
 
+		const recurringCreationResponse = (invocation: CliInvocationV1) => {
+			const context = compactCreationContext(invocation.requestId);
+			if (!context.policies) throw new Error('RECURRING_CREATION_POLICIES_MISSING');
+			context.policies.creation.temporalCreateVersion = 1;
+			context.policies.creation.temporalCreateKeys = [
+				'reminderDatetimes',
+				'reminderRules',
+				'repeat',
+				'datetimeRepeatEnd',
+			];
+			return successEnvelope(invocation, context);
+		};
 		const recurringInvocations: CliInvocationV1[] = [];
 		const recurringAutoApply = await runPublicCommandLineV1([
 			'task',
@@ -1211,16 +1223,7 @@ async function testCompactCreationFlows(): Promise<void> {
 			requestRoot: root.requests,
 			runProcess: fixtureRunner(root.requests, recurringInvocations, invocation => {
 				if (invocation.command === 'context.build') {
-					const result = compactCreationContext(invocation.requestId);
-					if (!result.policies) throw new Error('RECURRING_CREATION_POLICIES_MISSING');
-					result.policies.creation.temporalCreateVersion = 1;
-					result.policies.creation.temporalCreateKeys = [
-						'reminderDatetimes',
-						'reminderRules',
-						'repeat',
-						'datetimeRepeatEnd',
-					];
-					return successEnvelope(invocation, result);
+					return recurringCreationResponse(invocation);
 				}
 				if (invocation.command === 'mutation.preview') {
 					const result = creationPreviewResult(
@@ -1261,6 +1264,54 @@ async function testCompactCreationFlows(): Promise<void> {
 			'mutation.preview',
 			'mutation.apply',
 		]);
+
+		const monthly = 'mode=schedule|freq=month|interval=4';
+		const missingScheduleFields = /monthdays=20.*days=mo\|setpos=1/u;
+		for (const { format, input, json, reason } of [
+			{
+				format: 'compact',
+				input: `inline "Monthly inline task" repeat::"${monthly}"`,
+				json: false,
+				reason: missingScheduleFields,
+			},
+			{
+				format: 'compact-lines',
+				input: `"Valid first task"\nfile "Monthly File Task" repeat::"${monthly}"\n`,
+				json: true,
+				reason: missingScheduleFields,
+			},
+			{
+				format: 'compact',
+				input: `file "Invalid position" repeat::"${monthly}|days=mo|SETPOS=9"`,
+				json: true,
+				reason: /^The value does not match its live field type\.$/u,
+			},
+		]) {
+			const invocations: CliInvocationV1[] = [];
+			const refused = await runPublicCommandLineV1([
+				'task', 'create', '--input-format', format, '--input', '-', '--vault', root.vault,
+				...(json ? ['--json'] : []),
+			], {
+				configRoot: root.config,
+				requestRoot: root.requests,
+				input: Buffer.from(input, 'utf8'),
+				runProcess: fixtureRunner(root.requests, invocations, invocation => (
+					invocation.command === 'context.build'
+						? recurringCreationResponse(invocation)
+						: compactCreationResponse(invocation, false)
+				)),
+			});
+			assert.equal(refused.exitCode, 2, refused.human);
+			assert.equal(refused.json, json);
+			assert.ok(refused.envelope.kind === 'operon-cli-local-result' && refused.envelope.error);
+			assert.equal(refused.envelope.error.code, 'invalid-request');
+			assert.equal(refused.envelope.error.details?.reasonCode, 'invalid-field-value');
+			assert.match(refused.envelope.error.reason, reason);
+			assert.ok(refused.human.includes(refused.envelope.error.reason));
+			assert.deepEqual(invocations
+				.map(invocation => invocation.command)
+				.filter(command => command !== 'capabilities'), ['context.build']);
+		}
 
 		const elevatedInvocations: CliInvocationV1[] = [];
 		const elevatedPreview = await runPublicCommandLineV1([

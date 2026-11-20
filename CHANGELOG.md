@@ -5,6 +5,7 @@
 ### Fixed
 
 - Explain how to get the confirmation token for non-interactive plan apply. [#33](https://github.com/hasanyilmaz/operon-cli/issues/33)
+- Explain the required fields when a monthly schedule repeat rule is incomplete in compact task creation. [#34](https://github.com/hasanyilmaz/operon-cli/issues/34)
 
 ## 1.3.1
 
