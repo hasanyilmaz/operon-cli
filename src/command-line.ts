@@ -72,6 +72,7 @@ type RuntimeCapabilityIdV1 = RuntimeCapabilityAdvertisementV1['id'];
 import type { PersistentReadTransportV1 } from './persistent-read-client';
 import { createPersistentReadTransportV1 } from './persistent-read-feature';
 import {
+	PLAN_CONFIRMATION_GUIDANCE_V1,
 	canonicalSubcommandsV1,
 	commandDefinitionByIdV1,
 	completionCandidatesV1,
@@ -5769,7 +5770,7 @@ function localErrorReason(code: string): string {
 		VAULT_PROFILE_MOVED: 'The configured vault path identity changed; run operon setup again.',
 		PROFILE_NOT_FOUND: 'The requested Operon vault profile does not exist.',
 		PLAN_EXPIRED: 'The sealed mutation plan expired; create a new preview.',
-			PLAN_CONFIRMATION_REQUIRED: 'This plan requires its derived confirmation token through --confirm.',
+			PLAN_CONFIRMATION_REQUIRED: `This plan requires explicit confirmation. ${PLAN_CONFIRMATION_GUIDANCE_V1}`,
 			PLAN_ABANDON_CONFIRMATION_REQUIRED: 'Type ABANDON explicitly to remove an uncertain recovery record.',
 			PLAN_RECOVERY_ACTION_INVALID: 'Choose recover, abandon, or cancel.',
 			PLAN_RECOVERY_SELECTION_INVALID: 'Select one listed recoverable plan.',

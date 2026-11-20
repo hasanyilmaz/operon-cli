@@ -726,6 +726,18 @@ test('help and unknown commands are resolved locally before vault or Runtime acc
 			'',
 		].join('\n'));
 
+		for (const group of ['plan', 'mutation']) {
+			const applyHelp = await runPublicCommandLineV1([group, 'apply', '--help'], {
+				configRoot: path.join(root, 'missing-config'),
+				runProcess,
+			});
+			assert.equal(applyHelp.exitCode, 0);
+			assert.match(applyHelp.human, /--confirm <confirmation-token>/u);
+			assert.match(applyHelp.human, /operon plan show PLAN_REF --json/u);
+			assert.match(applyHelp.human, /result\.plan\.confirmationToken/u);
+			assert.doesNotMatch(applyHelp.human, /<target-digest>/u);
+		}
+
 		const taskUpdateHelp = await runPublicCommandLineV1(['task', 'update', '--help'], {
 			configRoot: path.join(root, 'missing-config'),
 			runProcess,
@@ -2001,31 +2013,34 @@ test('a transport-interrupted plan apply is recovery-only and cannot be discarde
 				overflow: false,
 			};
 		};
-		const missingConsent = await runPublicCommandLineV1([
-			'plan',
-			'apply',
-			stored.planRef,
-			'--json',
-		], { configRoot: root });
-		assert.equal(missingConsent.exitCode, 4);
-		assert.equal(
-			missingConsent.envelope.kind === 'operon-cli-local-result'
-				? missingConsent.envelope.error?.code
-				: undefined,
-			'confirmation-required',
-		);
-		assert.equal(
-			missingConsent.envelope.kind === 'operon-cli-local-result'
-				? missingConsent.envelope.error?.action
-				: undefined,
-			'request-consent',
-		);
+		for (const token of [undefined, plan.requiredAcknowledgements[0], plan.targets[0].targetDigest]) {
+			const refused = await runPublicCommandLineV1([
+				'plan', 'apply', stored.planRef, '--json',
+				...(token === undefined ? [] : ['--confirm', token]),
+			], {
+				configRoot: root,
+				runProcess: async () => assert.fail('Unconfirmed apply must not reach Runtime.'),
+			});
+			assert.equal(refused.exitCode, 4);
+			assert.ok(refused.envelope.kind === 'operon-cli-local-result' && refused.envelope.error);
+			assert.equal(refused.envelope.error.code, 'confirmation-required');
+			assert.equal(refused.envelope.error.action, 'request-consent');
+			assert.equal(refused.envelope.error.details?.reasonCode, 'plan-confirmation-required');
+			assert.match(refused.envelope.error.reason, /operon plan show PLAN_REF --json/u);
+			assert.match(refused.envelope.error.reason, /result\.plan\.confirmationToken/u);
+			assert.ok(refused.human.includes(refused.envelope.error.reason));
+		}
+		const shown = await runPublicCommandLineV1(['plan', 'show', stored.planRef, '--json'], { configRoot: root });
+		assert.equal(shown.exitCode, 0);
+		assert.ok(shown.envelope.kind === 'operon-cli-local-result' && shown.envelope.ok);
+		const { confirmationToken } = (shown.envelope.result as { plan: { confirmationToken: string } }).plan;
+		assert.equal(confirmationToken, confirmationTokenForPlanV1(plan));
 		const beforeDispatch = await runPublicCommandLineV1([
 			'plan',
 			'apply',
 			stored.planRef,
 			'--confirm',
-			confirmationTokenForPlanV1(plan),
+			confirmationToken,
 			...(process.platform === 'win32'
 				? ['--obsidian-bin', process.execPath]
 				: []),
@@ -2060,7 +2075,7 @@ test('a transport-interrupted plan apply is recovery-only and cannot be discarde
 			'apply',
 			stored.planRef,
 			'--confirm',
-			confirmationTokenForPlanV1(plan),
+			confirmationToken,
 			...(process.platform === 'win32'
 				? ['--obsidian-bin', process.execPath]
 				: []),
