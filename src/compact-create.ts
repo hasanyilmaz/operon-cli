@@ -237,7 +237,11 @@ export function compileCompactCreateIntentV1(options: {
 			}
 			if (key === 'repeat') {
 				const parsed = parseRepeatRule(value);
-				if (!parsed) throw compactError(VALUE_ERROR, key);
+				if (!parsed) {
+					throw Object.assign(compactError(VALUE_ERROR, key), {
+						publicReason: incompleteMonthlyScheduleReason(value),
+					});
+				}
 				recurrenceRule = serializeRepeatRule(parsed);
 				continue;
 			}
@@ -557,6 +561,22 @@ function resolvePriorityId(model: GuidedCreationModelV1, value: string): string 
 
 function invalidValue(descriptor: Pick<FieldDescriptorV1, 'canonicalKey' | 'valueType'>): CompactCreateErrorV1 {
 	return compactError(VALUE_ERROR, descriptor.canonicalKey);
+}
+
+function incompleteMonthlyScheduleReason(value: string): string | undefined {
+	const keys = new Set(value.split('|').map(segment => segment.split('=', 1)[0].trim().toLowerCase()));
+	const hasDays = keys.has('days');
+	const hasSetpos = keys.has('setpos');
+	if (keys.has('monthdays') || (hasDays && hasSetpos)) return undefined;
+
+	// Adding only absent fields keeps the parser's checks on supplied values.
+	const example = hasDays ? 'setpos=1' : hasSetpos ? 'days=mo' : 'monthdays=20';
+	const completed = parseRepeatRule(`${value}|${example}`);
+	if (completed?.mode !== 'schedule' || completed.freq !== 'month') return undefined;
+
+	if (hasDays) return 'A monthly schedule repeat rule with days= also needs setpos= (for example setpos=1).';
+	if (hasSetpos) return 'A monthly schedule repeat rule with setpos= also needs one weekday in days= (for example days=mo).';
+	return 'A monthly schedule repeat rule needs monthdays= (for example monthdays=20) or one weekday in days= with setpos= (for example days=mo|setpos=1).';
 }
 
 function compactError(
