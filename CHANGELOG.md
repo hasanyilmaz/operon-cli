@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Compatibility
+
+- With the Operon Runtime fix, the CLI reports a verified result when creating a recurring File Task. Recovering the same plan returns the original task and series. Tested with CLI 1.3.1 for completion-based and scheduled repeats in an isolated macOS vault. End-user verification is pending. [#35](https://github.com/hasanyilmaz/operon-cli/issues/35)
+
+## 1.3.2
+
 ### Fixed
 
 - Explain how to get the confirmation token for non-interactive plan apply. [#33](https://github.com/hasanyilmaz/operon-cli/issues/33)

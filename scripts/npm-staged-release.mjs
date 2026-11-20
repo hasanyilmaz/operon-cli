@@ -13,7 +13,7 @@ import {
 } from './release-identity.mjs';
 
 const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const RELEASE_WORKFLOW_SHA256 = '0257bca119a064741e5cbb0b3a162682f945577ff83bb7d7e6a12ee58335682f';
+const RELEASE_WORKFLOW_SHA256 = '5c0a3ae89082097c95c36a8d1ca29444bb109768594176995b4d4b9b61b7b396';
 const ALLOWED_ACTIONS = new Set([
 	'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1',
 	'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020',
@@ -159,8 +159,8 @@ export async function artifactCheckV1(
 	assertRunId(expectedRunId, 'OPERON_CLI_RELEASE_EXPECTED_RUN_ID_INVALID');
 	assert.equal(expectedTarball, releaseIdentity.tarball.sha256, 'OPERON_CLI_RELEASE_TARBALL_BASELINE_MISMATCH');
 	const names = (await readdir(root)).sort();
-	assert.deepEqual(names, ['artifact-manifest.json', 'determinism-report.json', 'operon-cli-1.3.1.tgz'], 'OPERON_CLI_RELEASE_ARTIFACT_INVENTORY_MISMATCH');
-	const tarballPath = path.join(root, 'operon-cli-1.3.1.tgz');
+	assert.deepEqual(names, ['artifact-manifest.json', 'determinism-report.json', 'operon-cli-1.3.2.tgz'], 'OPERON_CLI_RELEASE_ARTIFACT_INVENTORY_MISMATCH');
+	const tarballPath = path.join(root, 'operon-cli-1.3.2.tgz');
 	const manifestPath = path.join(root, 'artifact-manifest.json');
 	const reportPath = path.join(root, 'determinism-report.json');
 	await assertRegularFile(tarballPath, 'OPERON_CLI_RELEASE_TARBALL_FILE_INVALID');
